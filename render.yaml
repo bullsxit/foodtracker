@@ -3,15 +3,16 @@ services:
     name: foodtracker
     runtime: python
     plan: free
+    pythonVersion: "3.11.9"
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn webapp.server:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: TELEGRAM_BOT_TOKEN
-        sync: false          # set manually in Render dashboard
+        sync: false
       - key: BOT_WEBHOOK_URL
-        sync: false          # set to https://<your-service>.onrender.com
+        sync: false
       - key: DATABASE_URL
-        sync: false          # set to your Supabase PostgreSQL URL
+        sync: false
       - key: FOOD_AI_PROVIDER
         value: mock
       - key: OPENAI_API_KEY
