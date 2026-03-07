@@ -1,24 +1,27 @@
 from __future__ import annotations
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 from sqlalchemy import Select, func, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from telegram import Update
-from telegram.ext import Application
 
-from bot import create_application
-from config import get_config
-from database.database import db
-from database.models import (
+# Ensure project root is in sys.path so imports from root modules work
+# both at runtime (uvicorn runs from root) and in IDE / tests.
+_PROJECT_ROOT = str(Path(__file__).parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from database.database import db  # noqa: E402
+from database.models import (  # noqa: E402
     DailyCalories,
     Food,
     User,
@@ -26,19 +29,20 @@ from database.models import (
     WaterIntake,
     Workout,
 )
-from services.water_service import WaterService
-from services.statistics_service import StatisticsService
-from services.calorie_ai_service import CalorieAIService, serialize_food_analysis
-from services.calorie_calculation_service import (
+from services.water_service import WaterService  # noqa: E402
+from services.statistics_service import StatisticsService  # noqa: E402
+from services.calorie_ai_service import CalorieAIService, serialize_food_analysis  # noqa: E402
+from services.calorie_calculation_service import (  # noqa: E402
     CalorieCalculationService,
     CalorieCalculationInput,
 )
-from services.score_service import ScoreService
+from services.score_service import ScoreService  # noqa: E402
+from config import get_config  # type: ignore[import-not-found]  # noqa: E402
 
 _logger = logging.getLogger(__name__)
 
-# Global Telegram Application instance (set during lifespan startup)
-_bot_app: Application | None = None
+# Telegram Application instance — set during lifespan startup in webhook mode.
+_bot_app: Any = None  # type: Any avoids IDE needing telegram SDK installed
 
 
 @asynccontextmanager
@@ -51,7 +55,12 @@ async def lifespan(fastapi_app: FastAPI):  # noqa: ARG001
 
     config = get_config()
     if config.webhook_url:
-        # ── Production: webhook mode ─────────────────────────────────────────
+        # ── Production: webhook mode ──────────────────────────────────────────
+        # Lazy imports so the IDE doesn't complain when telegram is not
+        # resolvable from the webapp/ subdirectory context.
+        from bot import create_application  # type: ignore[import-not-found]  # noqa: PLC0415
+        from telegram import Update  # type: ignore[import-untyped]  # noqa: PLC0415
+
         _bot_app = create_application()
         await _bot_app.initialize()
         await _bot_app.start()
@@ -62,10 +71,10 @@ async def lifespan(fastapi_app: FastAPI):  # noqa: ARG001
         )
         _logger.info("Telegram webhook set: %s", webhook_url)
     else:
-        # ── Local dev: polling is handled by main.py, nothing to do here ─────
-        _logger.info("BOT_WEBHOOK_URL not set – webhook mode disabled (use main.py for polling)")
+        # ── Local dev: polling handled by main.py ─────────────────────────────
+        _logger.info("BOT_WEBHOOK_URL not set – webhook mode off (use main.py for polling)")
 
-    yield  # ── Application running ──────────────────────────────────────────
+    yield  # ── app running ───────────────────────────────────────────────────
 
     if _bot_app is not None:
         if config.webhook_url:
@@ -103,6 +112,7 @@ async def telegram_webhook(token: str, request: Request) -> dict[str, str]:
         raise HTTPException(status_code=403, detail="Forbidden")
     if _bot_app is None:
         raise HTTPException(status_code=503, detail="Bot not initialised")
+    from telegram import Update  # type: ignore[import-untyped]  # noqa: PLC0415
     data = await request.json()
     update = Update.de_json(data, _bot_app.bot)
     await _bot_app.process_update(update)

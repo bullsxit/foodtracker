@@ -1,0 +1,5 @@
+{
+  "source_directories": ["."],
+  "python_version": "3.11",
+  "strict_handling_unsupported_stubs": false
+}
