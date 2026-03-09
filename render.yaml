@@ -1,3 +1,7 @@
+# Render Blueprint: deploy as Web Service (free tier).
+# 1. Connect this repo to Render, create a Web Service from it.
+# 2. Add a PostgreSQL database (e.g. Neon free tier) and set DATABASE_URL in Render env.
+# 3. Set TELEGRAM_BOT_TOKEN and BOT_WEBHOOK_URL (your Render service URL, no trailing slash).
 services:
   - type: web
     name: foodtracker

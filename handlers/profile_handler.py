@@ -14,7 +14,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import User, WeightHistory
-from utils.keyboards import main_menu_keyboard, profile_keyboard
+from utils.keyboards import get_main_menu_keyboard, profile_keyboard
 from utils.validators import parse_float
 
 
@@ -104,7 +104,7 @@ async def update_weight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await session.commit()
 
     await update.effective_chat.send_message(
-        "Greutatea a fost actualizată.", reply_markup=main_menu_keyboard()
+        "Greutatea a fost actualizată.", reply_markup=get_main_menu_keyboard()
     )
     return ConversationHandler.END
 
@@ -131,7 +131,7 @@ async def change_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await session.commit()
 
     await update.effective_chat.send_message(
-        "Obiectivul a fost actualizat.", reply_markup=main_menu_keyboard()
+        "Obiectivul a fost actualizat.", reply_markup=get_main_menu_keyboard()
     )
     return ConversationHandler.END
 

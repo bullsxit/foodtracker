@@ -78,6 +78,29 @@ document.querySelectorAll(".tab-button").forEach((btn) => {
   });
 });
 
+// Collapsible cards: tap header to expand/collapse form
+function initCollapsibles() {
+  const pairs = [
+    { toggleId: "toggle-manual-meal", bodyId: "body-manual-meal", cardId: "card-manual-meal" },
+    { toggleId: "toggle-photo-meal", bodyId: "body-photo-meal", cardId: "card-photo-meal" },
+    { toggleId: "toggle-water", bodyId: "body-water", cardId: "card-water" },
+    { toggleId: "toggle-workout", bodyId: "body-workout", cardId: "card-workout" },
+  ];
+  pairs.forEach(({ toggleId, bodyId, cardId }) => {
+    const toggle = document.getElementById(toggleId);
+    const body = document.getElementById(bodyId);
+    const card = document.getElementById(cardId);
+    if (!toggle || !body || !card) return;
+    toggle.addEventListener("click", () => {
+      const isOpen = !body.hidden;
+      body.hidden = isOpen;
+      toggle.setAttribute("aria-expanded", isOpen ? "false" : "true");
+      card.classList.toggle("is-open", !isOpen);
+    });
+  });
+}
+initCollapsibles();
+
 // Toggle weight chart visibility
 const toggleWeightChartBtn = document.getElementById("toggle-weight-chart");
 const weightChartContainer = document.getElementById("weight-chart-container");
@@ -330,10 +353,11 @@ document.querySelectorAll("[data-add-water]").forEach((btn) => {
   });
 });
 
-// History
-document
-  .getElementById("load-history")
-  .addEventListener("click", async () => {
+// History – legacy date-picker flow (only if present in DOM)
+const loadHistoryBtn = document.getElementById("load-history");
+const historyDateInput = document.getElementById("history-date");
+if (loadHistoryBtn && historyDateInput) {
+  loadHistoryBtn.addEventListener("click", async () => {
     if (!telegramId) {
       showError("Nu pot identifica utilizatorul.");
       return;
@@ -344,22 +368,23 @@ document
       return;
     }
     const container = document.getElementById("history-content");
-    container.innerHTML = "Se încarcă...";
-    try {
-      const data = await fetchJson(
-        `/meals/${telegramId}/${encodeURIComponent(dateInput.value)}`
-      );
-      if (!data.items.length) {
-        container.innerHTML = `<p class="muted">Nu există înregistrări pentru această zi.</p>`;
-        return;
-      }
-      const itemsHtml = data.items
-        .map(
-          (item) => `
+    if (container) {
+      container.innerHTML = "Se încarcă...";
+      try {
+        const data = await fetchJson(
+          `/meals/${telegramId}/${encodeURIComponent(dateInput.value)}`
+        );
+        if (!data.items.length) {
+          container.innerHTML = `<p class="muted">Nu există înregistrări pentru această zi.</p>`;
+          return;
+        }
+        const itemsHtml = data.items
+          .map(
+            (item) => `
         <div class="history-item">
           <div><span class="accent">${item.meal_type || "Masă"}</span> – ${
-            item.name
-          }</div>
+              item.name
+            }</div>
           <div class="muted">
             ${item.calories.toFixed(0)} kcal
             ${
@@ -374,18 +399,20 @@ document
           </div>
         </div>
       `
-        )
-        .join("");
-      container.innerHTML = `
+          )
+          .join("");
+        container.innerHTML = `
         <p class="muted">Total: ${data.total_calories.toFixed(0)} kcal</p>
         ${itemsHtml}
       `;
-    } catch (e) {
-      console.error(e);
-      container.innerHTML = "";
-      showError("Nu am putut încărca istoricul pentru ziua selectată.");
+      } catch (e) {
+        console.error(e);
+        container.innerHTML = "";
+        showError("Nu am putut încărca istoricul pentru ziua selectată.");
+      }
     }
   });
+}
 
 async function loadStats() {
   if (!telegramId) {
@@ -537,14 +564,15 @@ if (saveManualBtn) {
     try {
       await fetchJsonForm(`/meals/${telegramId}/add_manual`, fd);
       showError("Masa a fost salvată.");
-      // Reset some fields
+      // Reset form and refresh dashboard + score
       nameEl.value = "";
       gramsEl.value = "";
       calEl.value = "";
       protEl.value = "";
       carbsEl.value = "";
       fatEl.value = "";
-      loadDashboard();
+      await loadDashboard();
+      if (telegramId) await loadScore();
     } catch (e) {
       console.error(e);
       showError("Nu am putut salva masa.");
@@ -881,7 +909,7 @@ async function loadLeaderboard() {
     const medalMap = { 1: "🥇", 2: "🥈", 3: "🥉" };
     const rows = list.map((entry) => {
       const medal = medalMap[entry.rank] || `#${entry.rank}`;
-      const isMe  = entry.telegram_id === telegramId;
+      const isMe  = Number(entry.telegram_id) === Number(telegramId);
       const scoreCls = entry.score >= 85 ? "score-top"
                      : entry.score >= 70 ? "score-high"
                      : entry.score >= 50 ? "score-mid" : "score-low";

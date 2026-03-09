@@ -60,6 +60,7 @@ async def lifespan(fastapi_app: FastAPI):  # noqa: ARG001
         # resolvable from the webapp/ subdirectory context.
         from bot import create_application  # type: ignore[import-not-found]  # noqa: PLC0415
         from telegram import Update  # type: ignore[import-untyped]  # noqa: PLC0415
+        from telegram import MenuButtonWebApp, WebAppInfo  # type: ignore[import-untyped]  # noqa: PLC0415
 
         _bot_app = create_application()
         await _bot_app.initialize()
@@ -70,6 +71,12 @@ async def lifespan(fastapi_app: FastAPI):  # noqa: ARG001
             allowed_updates=Update.ALL_TYPES,
         )
         _logger.info("Telegram webhook set: %s", webhook_url)
+        # Set menu button so users can open the Mini App from the bot chat
+        mini_app_url = config.webhook_url.rstrip("/") + "/webapp/"
+        await _bot_app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp("Deschide aplicația", WebAppInfo(url=mini_app_url)),
+        )
+        _logger.info("Telegram menu button set to Mini App: %s", mini_app_url)
     else:
         # ── Local dev: polling handled by main.py ─────────────────────────────
         _logger.info("BOT_WEBHOOK_URL not set – webhook mode off (use main.py for polling)")

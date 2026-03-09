@@ -14,7 +14,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import Food
-from utils.keyboards import history_navigation_keyboard, main_menu_keyboard
+from utils.keyboards import history_navigation_keyboard, get_main_menu_keyboard
 
 
 async def _get_diary_date(context: ContextTypes.DEFAULT_TYPE) -> date:
@@ -94,7 +94,7 @@ async def history_navigation(
         target_date = await _change_diary_date(context, 1)
     else:
         await update.effective_chat.send_message(
-            "Te întorc la meniu.", reply_markup=main_menu_keyboard()
+            "Te întorc la meniu.", reply_markup=get_main_menu_keyboard()
         )
         return ConversationHandler.END
 

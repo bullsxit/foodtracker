@@ -19,7 +19,7 @@ from services.calorie_ai_service import (
     FoodAnalysisResult,
     format_food_analysis,
 )
-from utils.keyboards import confirmation_keyboard, main_menu_keyboard
+from utils.keyboards import confirmation_keyboard, get_main_menu_keyboard
 from utils.validators import parse_float
 
 
@@ -101,7 +101,7 @@ async def confirm_ai_food(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not analysis:
         await update.effective_chat.send_message(
             "Nu există o analiză disponibilă. Te rog încearcă din nou.",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=get_main_menu_keyboard(),
         )
         return ConversationHandler.END
 
@@ -120,7 +120,7 @@ async def confirm_ai_food(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await session.commit()
         await update.effective_chat.send_message(
             "Am salvat mâncarea în jurnalul tău.",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=get_main_menu_keyboard(),
         )
         context.user_data.pop("ai_food_analysis", None)
         return ConversationHandler.END
@@ -134,7 +134,7 @@ async def confirm_ai_food(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return HomeState.FOOD_NAME
 
     await update.effective_chat.send_message(
-        "Am anulat salvarea.", reply_markup=main_menu_keyboard()
+        "Am anulat salvarea.", reply_markup=get_main_menu_keyboard()
     )
     context.user_data.pop("ai_food_analysis", None)
     return ConversationHandler.END
@@ -211,7 +211,7 @@ async def manual_food_fat(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     await update.effective_chat.send_message(
         "Mâncarea a fost salvată.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
     for key in ["food_name", "calories", "protein", "carbs", "fat", "manual_from_ai"]:
         context.user_data.pop(key, None)
@@ -244,7 +244,7 @@ async def show_today_calories(
         f"{consumed:.0f} / {target:.0f} kcal\n\n"
         "Au mai rămas:\n\n"
         f"{remaining:.0f} kcal",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
     return ConversationHandler.END
 

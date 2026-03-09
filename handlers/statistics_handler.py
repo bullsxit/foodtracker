@@ -10,7 +10,7 @@ from telegram.ext import (
 
 from database.database import db
 from services.statistics_service import StatisticsService
-from utils.keyboards import main_menu_keyboard
+from utils.keyboards import get_main_menu_keyboard
 
 
 async def show_statistics_menu(
@@ -20,7 +20,7 @@ async def show_statistics_menu(
         return ConversationHandler.END
     await update.effective_chat.send_message(
         "📊 Statistici\n\nTrimit acum graficele tale.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
 
     async for session in db.session():

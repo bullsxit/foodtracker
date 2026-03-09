@@ -478,6 +478,55 @@ input[type="date"] {
   color: #6b7280;
 }
 
+/* ── Collapsible cards (manual meal, AI meal, workout) ─────────────────────── */
+.collapsible-card {
+  overflow: hidden;
+}
+
+.collapsible-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 0;
+  padding: 0 0 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  gap: 8px;
+}
+
+.collapsible-card-header h2 {
+  margin: 0;
+  flex: 1;
+}
+
+.collapsible-chevron {
+  font-size: 1.25rem;
+  color: #9ca3af;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.collapsible-card.is-open .collapsible-chevron {
+  transform: rotate(90deg);
+}
+
+.collapsible-card-body {
+  padding-top: 12px;
+  border-top: 1px solid rgba(55, 65, 81, 0.5);
+  margin-top: 4px;
+}
+
+.collapsible-card-body[hidden] {
+  display: none !important;
+}
+
 /* grid-2 helper */
 .grid-2 {
   display: grid;

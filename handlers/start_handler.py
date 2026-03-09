@@ -19,7 +19,7 @@ from services.calorie_calculation_service import (
     CalorieCalculationInput,
     CalorieCalculationService,
 )
-from utils.keyboards import activity_level_keyboard, goals_keyboard, main_menu_keyboard
+from utils.keyboards import activity_level_keyboard, goals_keyboard, get_main_menu_keyboard
 from utils.validators import parse_float, parse_int
 
 
@@ -40,7 +40,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if existing:
         await update.effective_chat.send_message(
             "Bun venit înapoi! Alege o opțiune din meniu.",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=get_main_menu_keyboard(),
         )
         return ConversationHandler.END
 
@@ -173,7 +173,7 @@ async def registration_activity(
 
     await update.effective_chat.send_message(
         "Profilul tău a fost creat! Poți folosi acum meniul principal.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
     context.user_data.clear()
     return ConversationHandler.END

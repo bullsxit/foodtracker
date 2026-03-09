@@ -41,10 +41,12 @@ Toată interfața utilizator este în **limba română**. Numele variabilelor, f
 
 ### Structura proiectului
 
-- `main.py` – punctul de intrare, inițializează botul și handler-ele.
-- `config.py` – încărcare configurări (token, URL bază de date).
+- `main.py` – punctul de intrare pentru **modul local**: pornește botul în polling și inițializează baza de date.
+- `config.py` – încărcare configurări (token, URL bază de date, opțional URL webhook).
 - `requirements.txt` – dependențe Python.
 - `README.md` – acest fișier.
+- `webapp/` – aplicația web (mini app) servită de FastAPI: `server.py`, fișiere statice (HTML/JS/CSS).
+- `render.yaml` – configurare pentru host pe Render (opțional).
 
 Foldere:
 
@@ -62,6 +64,8 @@ Foldere:
   - `calorie_ai_service.py` – serviciu AI mock pentru analiză foto.
   - `calorie_calculation_service.py` – calcule BMR și calorii țintă.
   - `statistics_service.py` – interogări și generare grafice cu `matplotlib`.
+  - `score_service.py` – scor disciplină și streak (pentru mini app).
+  - `water_service.py` – apă zilnică (pentru mini app).
 - `utils/`
   - `keyboards.py` – generare tastaturi (ReplyKeyboardMarkup).
   - `validators.py` – parsare și validare input numeric.
@@ -136,12 +140,52 @@ python main.py
 
 ---
 
+### Rulare locală: bot + mini app (preview în browser)
+
+Pentru a folosi și **mini app-ul** (interfața web pentru calorii, apă, greutate, statistici) pe localhost:
+
+1. **Terminal 1 – Bot (polling)**  
+   Din rădăcina proiectului, cu mediul virtual activat:
+
+```bash
+cd /calea/ta/foodtracker
+source .venv/bin/activate
+python main.py
+```
+
+2. **Terminal 2 – Server web (FastAPI)**  
+   În același proiect, cu același venv activat:
+
+```bash
+cd /calea/ta/foodtracker
+source .venv/bin/activate
+uvicorn webapp.server:app --reload --port 8000
+```
+
+3. **Browser**  
+   Deschide:
+
+```
+http://127.0.0.1:8000/webapp/index.html?tid=TELEGRAM_ID
+```
+
+   Înlocuiește `TELEGRAM_ID` cu ID-ul tău Telegram (îl poți obține de la @userinfobot în Telegram). Fără `?tid=...` corect, mini app-ul poate să nu afișeze datele tale.
+
+4. **Variabile de mediu**  
+   În `.env` ai nevoie cel puțin de:
+   - `TELEGRAM_BOT_TOKEN=...` (obligatoriu pentru ambele procese).
+   - `DATABASE_URL=sqlite+aiosqlite:///data/database.db` (opțional; aceasta e valoarea implicită).
+
+   Pentru **doar local**, nu este nevoie de `BOT_WEBHOOK_URL`; se folosește polling din `main.py`. Pentru host (ex. Render), setezi `BOT_WEBHOOK_URL` și atunci botul rulează în mod webhook din uvicorn.
+
+---
+
 ### Note de producție
 
 - Codul folosește `asyncio` și `python-telegram-bot` async.
 - Baza de date este gestionată cu SQLAlchemy async + SQLite (fișierul `data/database.db`).
 - Serviciul AI pentru imagini este mocat în `calorie_ai_service.py` și poate fi înlocuit ușor cu un API real (prin `httpx` sau alt client HTTP).
-- Pentru deploy pe un server, poți:
-  - Configura aceleași variabile de mediu.
-  - Rula `python main.py` într-un serviciu de tip systemd, Docker sau PM2 (prin `pm2 start "python main.py"` etc.).
+- **Deploy (ex. Render):** setezi `TELEGRAM_BOT_TOKEN`, `BOT_WEBHOOK_URL`, `DATABASE_URL` (și opțional `OPENAI_API_KEY` / `FOOD_AI_PROVIDER`). Pornești cu `uvicorn webapp.server:app --host 0.0.0.0 --port $PORT`; botul rulează în mod webhook, nu mai este nevoie de `main.py`.
+- **Telegram Mini App pentru toți (gratuit):** vezi **[DEPLOY.md](DEPLOY.md)** pentru pași completi: Render (free) + Neon (PostgreSQL free), variabile de mediu, și cum utilizatorii deschid aplicația din Telegram (PC, telefon, tabletă). Clasamentul global funcționează cu aceeași bază de date.
+- Pentru un server propriu (VPS), poți rula `python main.py` (polling) sau uvicorn cu webhook, cu systemd, Docker etc.
 

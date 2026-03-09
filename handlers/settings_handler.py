@@ -12,7 +12,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import DailyCalories, Food, User, WeightHistory
-from utils.keyboards import main_menu_keyboard, settings_keyboard
+from utils.keyboards import get_main_menu_keyboard, settings_keyboard
 from utils.validators import parse_float, parse_int
 
 
@@ -62,7 +62,7 @@ async def reset_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await session.commit()
     await update.effective_chat.send_message(
         "Profilul tău a fost resetat complet. Folosește /start pentru a-l configura din nou.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
 
 
@@ -104,7 +104,7 @@ async def change_personal_height(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data.pop("new_age", None)
     await update.effective_chat.send_message(
         "Datele personale au fost actualizate.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
     return ConversationHandler.END
 
@@ -132,7 +132,7 @@ async def change_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await session.commit()
     await update.effective_chat.send_message(
         "Nivelul de activitate a fost actualizat.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(),
     )
     return ConversationHandler.END
 

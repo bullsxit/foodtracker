@@ -1,15 +1,29 @@
 from __future__ import annotations
 
-from telegram import ReplyKeyboardMarkup, KeyboardButton
+from telegram import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 
 
-def main_menu_keyboard() -> ReplyKeyboardMarkup:
+def main_menu_keyboard(web_app_url: str | None = None) -> ReplyKeyboardMarkup:
+    """Build main menu. If web_app_url is set (production), add a button to open the Mini App."""
     keyboard = [
         [KeyboardButton("🏠 Acasă"), KeyboardButton("📊 Statistici")],
         [KeyboardButton("📖 Jurnal"), KeyboardButton("👤 Profil")],
         [KeyboardButton("⚙️ Setări")],
     ]
+    if web_app_url:
+        keyboard.insert(0, [KeyboardButton("📱 Deschide aplicația", web_app=WebAppInfo(url=web_app_url))])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
+def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
+    """Main menu with Mini App button when BOT_WEBHOOK_URL is set."""
+    try:
+        from config import get_config
+        config = get_config()
+        url = (config.webhook_url.rstrip("/") + "/webapp/") if config.webhook_url else None
+    except Exception:
+        url = None
+    return main_menu_keyboard(url)
 
 
 def goals_keyboard() -> ReplyKeyboardMarkup:
