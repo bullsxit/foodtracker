@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy.sql.expression import literal
+from sqlalchemy import bindparam
 from sqlalchemy.types import BigInteger
 
 
 def tid_literal(val: int):
     """Bind telegram_id as BIGINT so asyncpg does not cast to INTEGER (int32)."""
-    return literal(val, BigInteger())
+    return bindparam("tid", val, type_=BigInteger())

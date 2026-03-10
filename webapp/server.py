@@ -15,10 +15,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, 
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import Select, func, select, delete
+from sqlalchemy import Select, bindparam, func, select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.expression import literal
 from sqlalchemy.types import BigInteger
 
 # Ensure project root is in sys.path so imports from root modules work
@@ -51,7 +50,12 @@ _logger = logging.getLogger(__name__)
 
 def _tid(val: int):
     """Bind telegram_id as BIGINT so asyncpg does not cast to INTEGER (int32)."""
-    return literal(val, BigInteger())
+    return bindparam("tid", val, type_=BigInteger())
+
+
+def _tid_bindparam(key: str = "tid"):
+    """Use with .where(col == _tid_bindparam()) then session.execute(stmt, {key: telegram_id})."""
+    return bindparam(key, type_=BigInteger())
 
 
 # Telegram Application instance — set during lifespan startup in webhook mode.
