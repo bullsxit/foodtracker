@@ -36,13 +36,14 @@ def get_config() -> BotConfig:
     elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-    # asyncpg does not accept sslmode=require; remove it so the driver doesn't get that kwarg.
-    # SSL is forced via connect_args in database.py for PostgreSQL.
-    if "+asyncpg" in db_url and "sslmode=" in db_url:
+    # asyncpg accepts only a limited set of connection params; strip psycopg-style and SSL URL params.
+    # SSL is forced via connect_args in database.py.
+    if "+asyncpg" in db_url:
         from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
         parsed = urlparse(db_url)
         qs = parse_qs(parsed.query)
-        qs.pop("sslmode", None)
+        for key in ("sslmode", "channel_binding", "ssl"):
+            qs.pop(key, None)
         new_query = urlencode(qs, doseq=True) if qs else ""
         db_url = urlunparse(parsed._replace(query=new_query))
 
