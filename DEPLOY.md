@@ -98,7 +98,11 @@ To reduce cold starts, you can use a free “cron” service (e.g. cron-job.org)
 
 - **Database errors:**  
   - Check `DATABASE_URL` (Neon connection string).  
-  - Ensure the project has `asyncpg` in `requirements.txt` (for PostgreSQL).
+  - Ensure the project has `asyncpg` in `requirements.txt` (for PostgreSQL).  
+  - The app uses a **single DB connection** (pool_size=1) on Neon so that multiple users (second, third, etc.) don’t hit connection limits; requests wait for the connection in turn.
+
+- **Second user / new account gets error when registering:**  
+  - The app is configured to use one PostgreSQL connection at a time (Neon-friendly). If you still see errors, check Render **Logs** for the real exception; fix any DB or validation issue reported there.
 
 - **Leaderboard empty:**  
   - At least one user must have completed onboarding and have score/streak data. Use the app, add meals/water/workouts, then open the Leaderboard tab.

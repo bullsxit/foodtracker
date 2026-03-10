@@ -22,8 +22,19 @@ class Database:
         connect_args = {}
         if "postgresql+asyncpg" in self._database_url:
             connect_args["ssl"] = True
+        # Neon free tier: use a single connection so multiple users don't exhaust limits.
+        # All requests share one connection (serialized); avoids "second user" 500s.
+        engine_kwargs: dict = {
+            "echo": False,
+            "connect_args": connect_args,
+        }
+        if "postgresql" in self._database_url:
+            engine_kwargs["pool_size"] = 1
+            engine_kwargs["max_overflow"] = 0
+            engine_kwargs["pool_pre_ping"] = True
         self._engine: AsyncEngine = create_async_engine(
-            self._database_url, echo=False, connect_args=connect_args
+            self._database_url,
+            **engine_kwargs,
         )
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
