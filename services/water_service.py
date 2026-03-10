@@ -8,7 +8,6 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import WaterIntake
-from database.query_helpers import tid_literal
 
 
 @dataclass
@@ -23,19 +22,19 @@ class WaterService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def add_water(self, telegram_id: int, amount_ml: float) -> None:
+    async def add_water(self, user_id: int, amount_ml: float) -> None:
         entry = WaterIntake(
-            telegram_id=telegram_id,
+            user_id=user_id,
             date=date.today(),
             amount_ml=amount_ml,
         )
         self._session.add(entry)
 
-    async def get_today_total(self, telegram_id: int) -> float:
+    async def get_today_total(self, user_id: int) -> float:
         stmt = (
             select(func.sum(WaterIntake.amount_ml))
             .where(
-                WaterIntake.telegram_id == tid_literal(telegram_id),
+                WaterIntake.user_id == user_id,
                 WaterIntake.date == date.today(),
             )
             .scalar_subquery()
@@ -46,14 +45,14 @@ class WaterService:
 
     async def get_range(
         self,
-        telegram_id: int,
+        user_id: int,
         start_date: date,
         end_date: date,
     ) -> list[DailyWaterStat]:
         stmt: Select = (
             select(WaterIntake.date, func.sum(WaterIntake.amount_ml))
             .where(
-                WaterIntake.telegram_id == tid_literal(telegram_id),
+                WaterIntake.user_id == user_id,
                 WaterIntake.date >= start_date,
                 WaterIntake.date <= end_date,
             )
@@ -63,4 +62,3 @@ class WaterService:
         result = await self._session.execute(stmt)
         rows: Sequence[tuple[date, float]] = result.all()
         return [DailyWaterStat(day=row[0], amount_ml=row[1]) for row in rows]
-

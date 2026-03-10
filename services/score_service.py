@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import DailyCalories, Food, User, WaterIntake, Workout
-from database.query_helpers import tid_literal
 
 
 class ScoreService:
@@ -17,15 +16,12 @@ class ScoreService:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def compute(self, telegram_id: int) -> dict[str, Any]:
+    async def compute(self, user_id: int) -> dict[str, Any]:
         today = date.today()
         start_7 = today - timedelta(days=6)
         start_week = today - timedelta(days=today.weekday())  # Monday
 
-        # ── Fetch user target calories ─────────────────────────────────────
-        user_result = await self._session.execute(
-            select(User).where(User.telegram_id == tid_literal(telegram_id))
-        )
+        user_result = await self._session.execute(select(User).where(User.id == user_id))
         user = user_result.scalars().first()
         if not user:
             return {"score": 0, "streak": 0, "breakdown": {}}
@@ -35,10 +31,9 @@ class ScoreService:
         target_carbs_g = (target_cal * 0.40) / 4.0
         target_fat_g = (target_cal * 0.30) / 9.0
 
-        # ── Calorie adherence – last 7 days average ────────────────────────
         cal_result = await self._session.execute(
             select(func.avg(DailyCalories.total_calories)).where(
-                DailyCalories.telegram_id == tid_literal(telegram_id),
+                DailyCalories.user_id == user_id,
                 DailyCalories.date >= start_7,
                 DailyCalories.date <= today,
             )
@@ -59,14 +54,13 @@ class ScoreService:
         else:
             cal_score = 0
 
-        # ── Macro balance – last 7 days totals ────────────────────────────
         macro_result = await self._session.execute(
             select(
                 func.coalesce(func.avg(Food.protein), 0),
                 func.coalesce(func.avg(Food.carbs), 0),
                 func.coalesce(func.avg(Food.fat), 0),
             ).where(
-                Food.telegram_id == tid_literal(telegram_id),
+                Food.user_id == user_id,
                 Food.date >= start_7,
                 Food.date <= today,
             )
@@ -88,14 +82,12 @@ class ScoreService:
                     macro_score += 7
                 elif ratio <= 0.30:
                     macro_score += 3
-        # cap at 20
         macro_score = min(20, macro_score)
 
-        # ── Water average – last 7 days ────────────────────────────────────
         water_result = await self._session.execute(
             select(WaterIntake.date, func.sum(WaterIntake.amount_ml))
             .where(
-                WaterIntake.telegram_id == tid_literal(telegram_id),
+                WaterIntake.user_id == user_id,
                 WaterIntake.date >= start_7,
                 WaterIntake.date <= today,
             )
@@ -115,18 +107,15 @@ class ScoreService:
         else:
             water_score = 0
 
-        # ── Streak – consecutive disciplined days ──────────────────────────
-        streak = await self._compute_streak(telegram_id, today, target_cal)
-        # logarithmic: 1 day ≈ 2 pts, 7 days ≈ 10 pts, 30 days = 20 pts
+        streak = await self._compute_streak(user_id, today, target_cal)
         if streak > 0:
             streak_score = min(20, round(20 * math.log(streak + 1) / math.log(31)))
         else:
             streak_score = 0
 
-        # ── Workouts this week ─────────────────────────────────────────────
         workout_result = await self._session.execute(
             select(func.count(Workout.id)).where(
-                Workout.telegram_id == tid_literal(telegram_id),
+                Workout.user_id == user_id,
                 Workout.date >= start_week,
                 Workout.date <= today,
             )
@@ -143,7 +132,6 @@ class ScoreService:
         else:
             workout_score = 0
 
-        # ── Total ─────────────────────────────────────────────────────────
         total = cal_score + macro_score + water_score + streak_score + workout_score
         total = max(1, min(100, total))
 
@@ -160,16 +148,13 @@ class ScoreService:
         }
 
     async def _compute_streak(
-        self, telegram_id: int, today: date, target_cal: float
+        self, user_id: int, today: date, target_cal: float
     ) -> int:
-        """Count consecutive disciplined days ending today (or yesterday if today has no data)."""
         streak = 0
         check_date = today
-        # allow today to be in-progress – only count fully finished days
-        # but if today has data, include it
         for _ in range(365):
             disciplined = await self._is_disciplined_day(
-                telegram_id, check_date, target_cal
+                user_id, check_date, target_cal
             )
             if disciplined:
                 streak += 1
@@ -179,13 +164,11 @@ class ScoreService:
         return streak
 
     async def _is_disciplined_day(
-        self, telegram_id: int, day: date, target_cal: float
+        self, user_id: int, day: date, target_cal: float
     ) -> bool:
-        """A day is disciplined if calories were logged and ≤ 110% of target, and water ≥ 1500ml."""
-        # Calories check
         cal_result = await self._session.execute(
             select(DailyCalories.total_calories).where(
-                DailyCalories.telegram_id == tid_literal(telegram_id),
+                DailyCalories.user_id == user_id,
                 DailyCalories.date == day,
             )
         )
@@ -195,10 +178,9 @@ class ScoreService:
         if float(row) > target_cal * 1.10:
             return False
 
-        # Water check
         water_result = await self._session.execute(
             select(func.sum(WaterIntake.amount_ml)).where(
-                WaterIntake.telegram_id == tid_literal(telegram_id),
+                WaterIntake.user_id == user_id,
                 WaterIntake.date == day,
             )
         )

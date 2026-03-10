@@ -13,8 +13,7 @@ from telegram.ext import (
 )
 
 from database.database import db
-from database.models import Food
-from database.query_helpers import tid_literal
+from database.models import Food, User
 from utils.keyboards import history_navigation_keyboard, get_main_menu_keyboard
 
 
@@ -38,12 +37,12 @@ async def _change_diary_date(
 
 
 async def _render_diary_for_date(
-    session: AsyncSession, telegram_id: int, target_date: date
+    session: AsyncSession, user_id: int, target_date: date
 ) -> str:
     stmt: Select = (
         select(Food)
         .where(
-            Food.telegram_id == tid_literal(telegram_id),
+            Food.user_id == user_id,
             Food.date == target_date,
         )
         .order_by(Food.id)
@@ -70,9 +69,19 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
     target_date = await _get_diary_date(context)
     async for session in db.session():
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
+        )
+        user = user_result.scalars().first()
+        if not user:
+            await update.effective_chat.send_message(
+                "Nu am găsit profilul tău. Folosește /start pentru a începe.",
+                reply_markup=get_main_menu_keyboard(),
+            )
+            return ConversationHandler.END
         text = await _render_diary_for_date(
             session=session,
-            telegram_id=update.effective_user.id,  # type: ignore[arg-type]
+            user_id=user.id,
             target_date=target_date,
         )
     await update.effective_chat.send_message(
@@ -100,9 +109,19 @@ async def history_navigation(
         return ConversationHandler.END
 
     async for session in db.session():
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
+        )
+        user = user_result.scalars().first()
+        if not user:
+            await update.effective_chat.send_message(
+                "Nu am găsit profilul tău. Folosește /start pentru a începe.",
+                reply_markup=get_main_menu_keyboard(),
+            )
+            return ConversationHandler.END
         content = await _render_diary_for_date(
             session=session,
-            telegram_id=update.effective_user.id,  # type: ignore[arg-type]
+            user_id=user.id,
             target_date=target_date,
         )
     await update.effective_chat.send_message(

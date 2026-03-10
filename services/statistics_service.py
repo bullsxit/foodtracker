@@ -11,7 +11,6 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import DailyCalories, WeightHistory
-from database.query_helpers import tid_literal
 
 
 @dataclass
@@ -28,7 +27,7 @@ class StatisticsService:
 
     async def get_daily_calories_range(
         self,
-        telegram_id: int,
+        user_id: int,
         days: int,
     ) -> list[DailyCaloriesStat]:
         end_date = date.today()
@@ -37,7 +36,7 @@ class StatisticsService:
         stmt: Select = (
             select(DailyCalories.date, DailyCalories.total_calories)
             .where(
-                DailyCalories.telegram_id == tid_literal(telegram_id),
+                DailyCalories.user_id == user_id,
                 DailyCalories.date >= start_date,
                 DailyCalories.date <= end_date,
             )
@@ -51,13 +50,13 @@ class StatisticsService:
         ]
         return stats
 
-    async def get_average_calories(self, telegram_id: int, days: int) -> float | None:
+    async def get_average_calories(self, user_id: int, days: int) -> float | None:
         end_date = date.today()
         start_date = end_date - timedelta(days=days - 1)
         stmt = (
             select(func.avg(DailyCalories.total_calories))
             .where(
-                DailyCalories.telegram_id == tid_literal(telegram_id),
+                DailyCalories.user_id == user_id,
                 DailyCalories.date >= start_date,
                 DailyCalories.date <= end_date,
             )
@@ -70,13 +69,12 @@ class StatisticsService:
 
     async def generate_calories_chart(
         self,
-        telegram_id: int,
+        user_id: int,
         days: int,
     ) -> bytes:
-        stats = await self.get_daily_calories_range(telegram_id, days)
+        stats = await self.get_daily_calories_range(user_id, days)
 
         if not stats:
-            # Generate an empty chart with a message
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, "Nu există date suficiente.", ha="center", va="center")
             ax.axis("off")
@@ -103,7 +101,7 @@ class StatisticsService:
 
     async def get_weight_range(
         self,
-        telegram_id: int,
+        user_id: int,
         days: int,
     ) -> list[tuple[date, float]]:
         end_date = date.today()
@@ -111,7 +109,7 @@ class StatisticsService:
         stmt: Select = (
             select(WeightHistory.date, WeightHistory.weight)
             .where(
-                WeightHistory.telegram_id == tid_literal(telegram_id),
+                WeightHistory.user_id == user_id,
                 WeightHistory.date >= start_date,
                 WeightHistory.date <= end_date,
             )
@@ -122,10 +120,10 @@ class StatisticsService:
 
     async def generate_weight_chart(
         self,
-        telegram_id: int,
+        user_id: int,
         days: int,
     ) -> bytes:
-        rows = await self.get_weight_range(telegram_id, days)
+        rows = await self.get_weight_range(user_id, days)
         if not rows:
             fig, ax = plt.subplots()
             ax.text(0.5, 0.5, "Nu există date de greutate.", ha="center", va="center")
@@ -144,4 +142,3 @@ class StatisticsService:
         plt.close(fig)
         buffer.seek(0)
         return buffer.read()
-

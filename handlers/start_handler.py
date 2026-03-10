@@ -15,7 +15,6 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import User
-from database.query_helpers import tid_literal
 from services.calorie_calculation_service import (
     CalorieCalculationInput,
     CalorieCalculationService,
@@ -181,7 +180,7 @@ async def registration_activity(
 
 
 async def _get_user(session: AsyncSession, telegram_id: int) -> User | None:
-    stmt = select(User).where(User.telegram_id == tid_literal(telegram_id))
+    stmt = select(User).where(User.telegram_id == str(telegram_id))
     result = await session.execute(stmt)
     return result.scalars().first()
 
@@ -203,7 +202,7 @@ async def _create_user_from_context(
     target_calories = calc_service.calculate_target_calories(calc_input)
 
     user = User(
-        telegram_id=telegram_id,
+        telegram_id=str(telegram_id),
         name=data["name"],
         age=data["age"],
         height_cm=data["height_cm"],

@@ -15,10 +15,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, 
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import Select, bindparam, func, select, delete, text
+from sqlalchemy import Select, func, select, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import BIGINT as PG_BIGINT
 
 # Ensure project root is in sys.path so imports from root modules work
 # both at runtime (uvicorn runs from root) and in IDE / tests.
@@ -27,6 +26,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from database.database import db  # noqa: E402
+from database.user_resolver import get_user_id, get_user_by_id  # noqa: E402
 from database.models import (  # noqa: E402
     DailyCalories,
     Food,
@@ -46,16 +46,6 @@ from services.score_service import ScoreService  # noqa: E402
 from config import get_config  # type: ignore[import-not-found]  # noqa: E402
 
 _logger = logging.getLogger(__name__)
-
-
-def _tid(val: int):
-    """Bind telegram_id as BIGINT so asyncpg does not cast to INTEGER (int32)."""
-    return bindparam("tid", val, type_=PG_BIGINT())
-
-
-def _tid_bindparam(key: str = "tid"):
-    """Use with .where(col == _tid_bindparam()) then session.execute(stmt, {key: telegram_id})."""
-    return bindparam(key, type_=PG_BIGINT())
 
 
 # Telegram Application instance — set during lifespan startup in webhook mode.
@@ -200,19 +190,20 @@ async def get_dashboard(
     session: AsyncSession = Depends(get_session),
 ) -> Any:
     try:
-        user_stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-        user_result = await session.execute(user_stmt)
-        user = user_result.scalars().first()
+        user_id = await get_user_id(session, telegram_id)
+        if user_id is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        user = await get_user_by_id(session, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         if not (user.name and user.name.strip()):
-            await session.execute(delete(User).where(User.telegram_id == _tid(telegram_id)))
+            await session.execute(delete(User).where(User.id == user_id))
             await session.commit()
             raise HTTPException(status_code=404, detail="User not found")
 
         today = date.today()
         calories_stmt: Select = select(DailyCalories).where(
-            DailyCalories.telegram_id == _tid(telegram_id),
+            DailyCalories.user_id == user_id,
             DailyCalories.date == today,
         )
         calories_result = await session.execute(calories_stmt)
@@ -220,7 +211,7 @@ async def get_dashboard(
         consumed = daily.total_calories if daily else 0.0
 
         weight_today_stmt: Select = select(WeightHistory).where(
-            WeightHistory.telegram_id == _tid(telegram_id),
+            WeightHistory.user_id == user_id,
             WeightHistory.date == today,
         )
         weight_today_result = await session.execute(weight_today_stmt)
@@ -231,7 +222,7 @@ async def get_dashboard(
             func.coalesce(func.sum(Food.carbs), 0),
             func.coalesce(func.sum(Food.fat), 0),
         ).where(
-            Food.telegram_id == _tid(telegram_id),
+            Food.user_id == user_id,
             Food.date == today,
         )
         macros_result = await session.execute(macros_stmt)
@@ -246,7 +237,7 @@ async def get_dashboard(
         target_fat_g = (target * 0.30) / 9.0
 
         water_service = WaterService(session)
-        water_today = await water_service.get_today_total(telegram_id)
+        water_today = await water_service.get_today_total(user_id)
 
         payload = {
             "user": _serialize_user(user),
@@ -326,12 +317,8 @@ async def register(
         raise HTTPException(status_code=400, detail="Alege nivelul de activitate.")
 
     try:
-        # Use raw SQL with CAST so asyncpg never sees an int32; param as string.
-        check_sql = text(
-            "SELECT 1 FROM users WHERE telegram_id = CAST(:tid AS BIGINT)"
-        )
-        result = await session.execute(check_sql, {"tid": str(telegram_id)})
-        if result.scalar_one_or_none() is not None:
+        existing_id = await get_user_id(session, telegram_id)
+        if existing_id is not None:
             raise HTTPException(status_code=400, detail="Contul există deja. Deschide aplicația din Menu – ar trebui să vezi panoul.")
 
         calc = CalorieCalculationService()
@@ -345,7 +332,7 @@ async def register(
         )
         target = calc.calculate_target_calories(inp)
         user = User(
-            telegram_id=telegram_id,
+            telegram_id=str(telegram_id),
             name=name,
             age=age,
             height_cm=height_cm,
@@ -381,10 +368,13 @@ async def add_water(
     amount_ml: float,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     water_service = WaterService(session)
-    await water_service.add_water(telegram_id, amount_ml)
+    await water_service.add_water(user_id, amount_ml)
     await session.commit()
-    total = await water_service.get_today_total(telegram_id)
+    total = await water_service.get_today_total(user_id)
     return {"water_today_ml": total}
 
 
@@ -394,10 +384,13 @@ async def meals_for_date(
     for_date: date,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     stmt: Select = (
         select(Food)
         .where(
-            Food.telegram_id == _tid(telegram_id),
+            Food.user_id == user_id,
             Food.date == for_date,
         )
         .order_by(Food.id)
@@ -427,7 +420,7 @@ async def meals_for_date(
 
 async def _save_food_and_update_daily(
     session: AsyncSession,
-    telegram_id: int,
+    user_id: int,
     name: str,
     calories: float,
     protein: float | None,
@@ -438,7 +431,7 @@ async def _save_food_and_update_daily(
 ) -> None:
     calories_safe = _clamp_calories(calories, 15000.0)
     food = Food(
-        telegram_id=telegram_id,
+        user_id=user_id,
         food_name=name,
         calories=calories_safe,
         protein=protein,
@@ -450,14 +443,14 @@ async def _save_food_and_update_daily(
     session.add(food)
 
     stmt: Select = select(DailyCalories).where(
-        DailyCalories.telegram_id == _tid(telegram_id),
+        DailyCalories.user_id == user_id,
         DailyCalories.date == entry_date,
     )
     result = await session.execute(stmt)
     daily = result.scalars().first()
     if not daily:
         daily = DailyCalories(
-            telegram_id=telegram_id,
+            user_id=user_id,
             date=entry_date,
             total_calories=calories_safe,
         )
@@ -486,6 +479,9 @@ async def add_manual_meal(
     meal_type: str = Form("Neclasificat"),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     if calories < 0 or calories > 15000:
         raise HTTPException(
             status_code=400,
@@ -494,7 +490,7 @@ async def add_manual_meal(
     calories = _clamp_calories(calories, 15000.0)
     await _save_food_and_update_daily(
         session=session,
-        telegram_id=telegram_id,
+        user_id=user_id,
         name=name,
         calories=calories,
         protein=protein,
@@ -529,20 +525,20 @@ async def log_weight(
     weight: float = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    user_stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalars().first()
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = await get_user_by_id(session, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     user.current_weight = weight
     history = WeightHistory(
-        telegram_id=telegram_id,
+        user_id=user_id,
         weight=weight,
         date=date.today(),
     )
     session.add(history)
-    # Recalculate target calories when weight changes
     user.target_calories = _recalculate_target_calories(user)
     await session.commit()
     return {
@@ -557,9 +553,10 @@ async def update_personal(
     height_cm: int = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-    result = await session.execute(stmt)
-    user = result.scalars().first()
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = await get_user_by_id(session, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.age = age
@@ -577,9 +574,10 @@ async def update_goal(
 ) -> dict[str, Any]:
     if goal not in {"Slăbire", "Menținere", "Creștere"}:
         raise HTTPException(status_code=400, detail="Goal invalid")
-    stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-    result = await session.execute(stmt)
-    user = result.scalars().first()
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = await get_user_by_id(session, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.goal = goal
@@ -601,9 +599,10 @@ async def update_activity(
         "Foarte activ",
     }:
         raise HTTPException(status_code=400, detail="Nivel de activitate invalid")
-    stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-    result = await session.execute(stmt)
-    user = result.scalars().first()
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = await get_user_by_id(session, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.activity_level = activity_level
@@ -618,23 +617,24 @@ async def reset_profile_api(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Delete all data for this user from the database."""
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     try:
         await session.execute(
-            delete(WeightHistory).where(WeightHistory.telegram_id == _tid(telegram_id))
+            delete(WeightHistory).where(WeightHistory.user_id == user_id)
         )
         await session.execute(
-            delete(Food).where(Food.telegram_id == _tid(telegram_id))
+            delete(Food).where(Food.user_id == user_id)
         )
         await session.execute(
-            delete(DailyCalories).where(
-                DailyCalories.telegram_id == _tid(telegram_id)
-            )
+            delete(DailyCalories).where(DailyCalories.user_id == user_id)
         )
         await session.execute(
-            delete(WaterIntake).where(WaterIntake.telegram_id == _tid(telegram_id))
+            delete(WaterIntake).where(WaterIntake.user_id == user_id)
         )
         await session.execute(
-            delete(User).where(User.telegram_id == _tid(telegram_id))
+            delete(User).where(User.id == user_id)
         )
         await session.commit()
     except Exception as e:
@@ -648,16 +648,18 @@ async def get_stats(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     today = date.today()
     start_7 = today - timedelta(days=6)
     start_30 = today - timedelta(days=29)
 
-    # Calories
     def calories_stmt(start: date, end: date) -> Select:
         return (
             select(DailyCalories.date, DailyCalories.total_calories)
             .where(
-                DailyCalories.telegram_id == _tid(telegram_id),
+                DailyCalories.user_id == user_id,
                 DailyCalories.date >= start,
                 DailyCalories.date <= end,
             )
@@ -675,11 +677,10 @@ async def get_stats(
         for row in result_30.all()
     ]
 
-    # Weight
     weight_stmt: Select = (
         select(WeightHistory.date, WeightHistory.weight)
         .where(
-            WeightHistory.telegram_id == _tid(telegram_id),
+            WeightHistory.user_id == user_id,
             WeightHistory.date >= start_30,
             WeightHistory.date <= today,
         )
@@ -690,18 +691,16 @@ async def get_stats(
         {"date": str(row[0]), "weight": float(row[1])} for row in weight_result.all()
     ]
 
-    # Water
     water_service = WaterService(session)
-    water_range = await water_service.get_range(telegram_id, start_30, today)
+    water_range = await water_service.get_range(user_id, start_30, today)
     water = [
         {"date": str(s.day), "water_ml": float(s.amount_ml)} for s in water_range
     ]
 
-    # Average calories (capped to avoid absurd values from bad data)
     avg_cal_7_stmt = (
         select(func.avg(DailyCalories.total_calories))
         .where(
-            DailyCalories.telegram_id == _tid(telegram_id),
+            DailyCalories.user_id == user_id,
             DailyCalories.date >= start_7,
             DailyCalories.date <= today,
         )
@@ -713,9 +712,7 @@ async def get_stats(
     if avg_7 is not None:
         avg_7_safe = _clamp_calories(float(avg_7))
 
-    user_stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalars().first()
+    user = await get_user_by_id(session, user_id)
     target_cal = user.target_calories if user else 2000.0
     target_protein_g = (target_cal * 0.30) / 4.0
     target_carbs_g = (target_cal * 0.40) / 4.0
@@ -726,7 +723,7 @@ async def get_stats(
         func.coalesce(func.sum(Food.carbs), 0),
         func.coalesce(func.sum(Food.fat), 0),
     ).where(
-        Food.telegram_id == _tid(telegram_id),
+        Food.user_id == user_id,
         Food.date >= start_7,
         Food.date <= today,
     )
@@ -780,8 +777,11 @@ async def chart_weight(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> Response:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     stats_service = StatisticsService(session)
-    img_bytes = await stats_service.generate_weight_chart(telegram_id, 30)
+    img_bytes = await stats_service.generate_weight_chart(user_id, 30)
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -790,8 +790,11 @@ async def chart_calories(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> Response:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     stats_service = StatisticsService(session)
-    img_bytes = await stats_service.generate_calories_chart(telegram_id, 30)
+    img_bytes = await stats_service.generate_calories_chart(user_id, 30)
     return Response(content=img_bytes, media_type="image/png")
 
 
@@ -800,9 +803,10 @@ async def get_user(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-    result = await session.execute(stmt)
-    user = result.scalars().first()
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user = await get_user_by_id(session, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return _serialize_user(user)
@@ -816,12 +820,13 @@ async def get_day_summary(
     for_date: date,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """Return a full day summary: meals, macros, water, weight, workouts."""
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    # Meals
     foods_result = await session.execute(
         select(Food)
-        .where(Food.telegram_id == _tid(telegram_id), Food.date == for_date)
+        .where(Food.user_id == user_id, Food.date == for_date)
         .order_by(Food.id)
     )
     foods = foods_result.scalars().all()
@@ -830,7 +835,6 @@ async def get_day_summary(
     total_carbs    = sum(f.carbs or 0.0 for f in foods)
     total_fat      = sum(f.fat or 0.0 for f in foods)
 
-    # Group meals by meal_type
     groups: dict[str, list[dict[str, Any]]] = {}
     for f in foods:
         key = f.meal_type or "Neclasificat"
@@ -844,29 +848,26 @@ async def get_day_summary(
         })
     meal_groups = [{"meal_type": k, "items": v} for k, v in groups.items()]
 
-    # Water
     water_result = await session.execute(
         select(func.sum(WaterIntake.amount_ml)).where(
-            WaterIntake.telegram_id == _tid(telegram_id),
+            WaterIntake.user_id == user_id,
             WaterIntake.date == for_date,
         )
     )
     water_ml = float(water_result.scalar_one_or_none() or 0.0)
 
-    # Weight logged that day
     weight_result = await session.execute(
         select(WeightHistory.weight).where(
-            WeightHistory.telegram_id == _tid(telegram_id),
+            WeightHistory.user_id == user_id,
             WeightHistory.date == for_date,
         ).order_by(WeightHistory.id.desc())
     )
     weight_row = weight_result.scalars().first()
     weight_kg = float(weight_row) if weight_row is not None else None
 
-    # Workouts
     workouts_result = await session.execute(
         select(Workout)
-        .where(Workout.telegram_id == _tid(telegram_id), Workout.date == for_date)
+        .where(Workout.user_id == user_id, Workout.date == for_date)
         .order_by(Workout.id)
     )
     workouts = workouts_result.scalars().all()
@@ -898,8 +899,11 @@ async def get_score(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     svc = ScoreService(session)
-    return await svc.compute(telegram_id)
+    return await svc.compute(user_id)
 
 
 # ── Leaderboard ────────────────────────────────────────────────────────────────
@@ -915,7 +919,7 @@ async def get_leaderboard(
     entries = []
     for user in users:
         svc = ScoreService(session)
-        data = await svc.compute(user.telegram_id)
+        data = await svc.compute(user.id)
         entries.append(
             {
                 "telegram_id": user.telegram_id,
@@ -950,10 +954,13 @@ async def add_workout(
     duration_min: int | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     if calories_burned < 0 or calories_burned > 5000:
         raise HTTPException(status_code=400, detail="Calorii arse invalide (0-5000).")
     workout = Workout(
-        telegram_id=telegram_id,
+        user_id=user_id,
         name=name.strip(),
         calories_burned=calories_burned,
         duration_min=duration_min,
@@ -969,12 +976,15 @@ async def get_week_workouts(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    user_id = await get_user_id(session, telegram_id)
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="User not found")
     today = date.today()
     start_week = today - timedelta(days=today.weekday())  # Monday
     result = await session.execute(
         select(Workout)
         .where(
-            Workout.telegram_id == _tid(telegram_id),
+            Workout.user_id == user_id,
             Workout.date >= start_week,
             Workout.date <= today,
         )

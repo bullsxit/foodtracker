@@ -14,7 +14,6 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import DailyCalories, Food, User
-from database.query_helpers import tid_literal
 from services.calorie_ai_service import (
     CalorieAIService,
     FoodAnalysisResult,
@@ -108,9 +107,19 @@ async def confirm_ai_food(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if choice == "Da":
         async for session in db.session():
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
+            )
+            user = user_result.scalars().first()
+            if not user:
+                await update.effective_chat.send_message(
+                    "Nu am găsit profilul tău. Folosește /start pentru a începe.",
+                    reply_markup=get_main_menu_keyboard(),
+                )
+                return ConversationHandler.END
             await _save_food_and_update_daily(
                 session=session,
-                telegram_id=update.effective_user.id,  # type: ignore[arg-type]
+                user_id=user.id,
                 name=analysis.name,
                 calories=analysis.calories,
                 protein=analysis.protein,
@@ -198,9 +207,19 @@ async def manual_food_fat(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     fat_val = context.user_data.get("fat")
 
     async for session in db.session():
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
+        )
+        user = user_result.scalars().first()
+        if not user:
+            await update.effective_chat.send_message(
+                "Nu am găsit profilul tău. Folosește /start pentru a începe.",
+                reply_markup=get_main_menu_keyboard(),
+            )
+            return ConversationHandler.END
         await _save_food_and_update_daily(
             session=session,
-            telegram_id=update.effective_user.id,  # type: ignore[arg-type]
+            user_id=user.id,
             name=name,
             calories=calories,
             protein=protein,
@@ -223,18 +242,22 @@ async def show_today_calories(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     async for session in db.session():
+        user_result = await session.execute(
+            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
+        )
+        user = user_result.scalars().first()
+        if not user:
+            await update.effective_chat.send_message(
+                "Nu am găsit profilul tău. Folosește /start pentru a începe."
+            )
+            return ConversationHandler.END
+        uid = user.id
         stmt: Select = select(DailyCalories).where(
-            DailyCalories.telegram_id == tid_literal(update.effective_user.id),  # type: ignore[arg-type]
+            DailyCalories.user_id == uid,
             DailyCalories.date == date.today(),
         )
         result = await session.execute(stmt)
         daily = result.scalars().first()
-
-        user_stmt: Select = select(User).where(
-            User.telegram_id == tid_literal(update.effective_user.id)  # type: ignore[arg-type]
-        )
-        user_result = await session.execute(user_stmt)
-        user = user_result.scalars().first()
 
     consumed = daily.total_calories if daily else 0.0
     target = user.target_calories if user else 0.0
@@ -252,7 +275,7 @@ async def show_today_calories(
 
 async def _save_food_and_update_daily(
     session: AsyncSession,
-    telegram_id: int,
+    user_id: int,
     name: str,
     calories: float,
     protein: float | None,
@@ -261,7 +284,7 @@ async def _save_food_and_update_daily(
     entry_date: date,
 ) -> None:
     food = Food(
-        telegram_id=telegram_id,
+        user_id=user_id,
         food_name=name,
         calories=calories,
         protein=protein,
@@ -272,14 +295,14 @@ async def _save_food_and_update_daily(
     session.add(food)
 
     stmt: Select = select(DailyCalories).where(
-        DailyCalories.telegram_id == tid_literal(telegram_id),
+        DailyCalories.user_id == user_id,
         DailyCalories.date == entry_date,
     )
     result = await session.execute(stmt)
     daily = result.scalars().first()
     if not daily:
         daily = DailyCalories(
-            telegram_id=telegram_id,
+            user_id=user_id,
             date=entry_date,
             total_calories=calories,
         )
