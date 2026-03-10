@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from enum import IntEnum, auto
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
@@ -14,6 +13,7 @@ from telegram.ext import (
 )
 
 from database.database import db
+from database.user_resolver import get_user_by_telegram_id
 from database.models import User
 from services.calorie_calculation_service import (
     CalorieCalculationInput,
@@ -36,7 +36,7 @@ class RegistrationState(IntEnum):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     assert update.effective_chat
     async for session in db.session():
-        existing = await _get_user(session, update.effective_user.id)  # type: ignore[arg-type]
+        existing = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
     if existing:
         await update.effective_chat.send_message(
             "Bun venit înapoi! Alege o opțiune din meniu.",
@@ -177,12 +177,6 @@ async def registration_activity(
     )
     context.user_data.clear()
     return ConversationHandler.END
-
-
-async def _get_user(session: AsyncSession, telegram_id: int) -> User | None:
-    stmt = select(User).where(User.telegram_id == str(telegram_id))
-    result = await session.execute(stmt)
-    return result.scalars().first()
 
 
 async def _create_user_from_context(

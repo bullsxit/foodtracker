@@ -13,7 +13,8 @@ from telegram.ext import (
 )
 
 from database.database import db
-from database.models import Food, User
+from database.user_resolver import get_user_by_telegram_id
+from database.models import Food
 from utils.keyboards import history_navigation_keyboard, get_main_menu_keyboard
 
 
@@ -69,10 +70,7 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ConversationHandler.END
     target_date = await _get_diary_date(context)
     async for session in db.session():
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        )
-        user = user_result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe.",
@@ -109,10 +107,7 @@ async def history_navigation(
         return ConversationHandler.END
 
     async for session in db.session():
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        )
-        user = user_result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe.",

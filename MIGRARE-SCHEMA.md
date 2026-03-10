@@ -6,7 +6,7 @@ Dacă ai deja aplicația deployată cu schema veche (erori de tip „value out o
 
 ## Pasul 1: Salvează `DATABASE_URL` de pe Render
 
-1. Intră pe [Render Dashboard](https://dashboard.render.com).
+1. Intră pe [Render Dashboard](https:da//dashboard.render.com).
 2. Deschide serviciul tău (ex. **foodtracker**).
 3. Mergi la **Environment**.
 4. Găsești variabila **DATABASE_URL** (connection string-ul Neon). Copiază-l într-un loc sigur (Notepad, 1Password etc.) — îl vei folosi la Pasul 3.
@@ -15,12 +15,12 @@ Dacă ai deja aplicația deployată cu schema veche (erori de tip „value out o
 
 ## Pasul 2: Push la codul actual pe GitHub
 
-Asigură-te că ai făcut push la toate modificările (inclusiv schema cu `user_id`, `telegram_id` ca string etc.) pe branch-ul pe care îl folosești pe Render (de obicei `main`):
+Asigură-te că ai făcut push la toate modificările (inclusiv schema cu `user_id`, `telegram_id` ca string etc.) pe branch-ul pe care îl folosești pe Render (de obicei `main` sau `master`):
 
 ```bash
 git add -A
 git commit -m "Schema user_id: telegram_id string, tabele cu user_id"
-git push origin main
+git push origin master
 ```
 
 ---

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import Select, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
     ContextTypes,
@@ -13,6 +11,7 @@ from telegram.ext import (
 )
 
 from database.database import db
+from database.user_resolver import get_user_by_telegram_id
 from database.models import User, WeightHistory
 from utils.keyboards import get_main_menu_keyboard, profile_keyboard
 from utils.validators import parse_float
@@ -23,15 +22,9 @@ class ProfileState:
     CHANGE_GOAL = 2
 
 
-async def _get_user(session: AsyncSession, telegram_id: int) -> User | None:
-    stmt: Select = select(User).where(User.telegram_id == str(telegram_id))
-    result = await session.execute(stmt)
-    return result.scalars().first()
-
-
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     async for session in db.session():
-        user = await _get_user(session, update.effective_user.id)  # type: ignore[arg-type]
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
     if not user:
         await update.effective_chat.send_message(
             "Nu ai încă un profil. Folosește comanda /start pentru a începe."
@@ -88,7 +81,7 @@ async def update_weight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ProfileState.UPDATE_WEIGHT
 
     async for session in db.session():
-        user = await _get_user(session, update.effective_user.id)  # type: ignore[arg-type]
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe."
@@ -121,7 +114,7 @@ async def change_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         return ProfileState.CHANGE_GOAL
 
     async for session in db.session():
-        user = await _get_user(session, update.effective_user.id)  # type: ignore[arg-type]
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe."

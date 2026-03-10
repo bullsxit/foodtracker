@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
     ContextTypes,
@@ -11,6 +10,7 @@ from telegram.ext import (
 )
 
 from database.database import db
+from database.user_resolver import get_user_by_telegram_id
 from database.models import DailyCalories, Food, User, WeightHistory
 from utils.keyboards import get_main_menu_keyboard, settings_keyboard
 from utils.validators import parse_float, parse_int
@@ -54,10 +54,7 @@ async def settings_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def reset_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async for session in db.session():
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        )
-        user = user_result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe."
@@ -99,9 +96,7 @@ async def change_personal_height(update: Update, context: ContextTypes.DEFAULT_T
         )
         return SettingsState.CHANGE_PERSONAL_HEIGHT
     async for session in db.session():
-        stmt = select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        result = await session.execute(stmt)
-        user = result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe."
@@ -129,9 +124,7 @@ async def change_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return SettingsState.CHANGE_ACTIVITY
     async for session in db.session():
-        stmt = select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        result = await session.execute(stmt)
-        user = result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe."

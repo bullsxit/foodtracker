@@ -13,6 +13,7 @@ from telegram.ext import (
 )
 
 from database.database import db
+from database.user_resolver import get_user_by_telegram_id
 from database.models import DailyCalories, Food, User
 from services.calorie_ai_service import (
     CalorieAIService,
@@ -107,10 +108,7 @@ async def confirm_ai_food(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if choice == "Da":
         async for session in db.session():
-            user_result = await session.execute(
-                select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-            )
-            user = user_result.scalars().first()
+            user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
             if not user:
                 await update.effective_chat.send_message(
                     "Nu am găsit profilul tău. Folosește /start pentru a începe.",
@@ -207,10 +205,7 @@ async def manual_food_fat(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     fat_val = context.user_data.get("fat")
 
     async for session in db.session():
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        )
-        user = user_result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe.",
@@ -242,10 +237,7 @@ async def show_today_calories(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
     async for session in db.session():
-        user_result = await session.execute(
-            select(User).where(User.telegram_id == str(update.effective_user.id))  # type: ignore[arg-type]
-        )
-        user = user_result.scalars().first()
+        user = await get_user_by_telegram_id(session, update.effective_user.id)  # type: ignore[arg-type]
         if not user:
             await update.effective_chat.send_message(
                 "Nu am găsit profilul tău. Folosește /start pentru a începe."
