@@ -36,6 +36,16 @@ def get_config() -> BotConfig:
     elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+    # asyncpg does not accept sslmode=require; remove it so the driver doesn't get that kwarg.
+    # SSL is forced via connect_args in database.py for PostgreSQL.
+    if "+asyncpg" in db_url and "sslmode=" in db_url:
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        parsed = urlparse(db_url)
+        qs = parse_qs(parsed.query)
+        qs.pop("sslmode", None)
+        new_query = urlencode(qs, doseq=True) if qs else ""
+        db_url = urlunparse(parsed._replace(query=new_query))
+
     webhook_url = os.getenv("BOT_WEBHOOK_URL", "").rstrip("/")
 
     return BotConfig(bot_token=token, database_url=db_url, webhook_url=webhook_url)

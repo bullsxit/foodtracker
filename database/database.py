@@ -19,7 +19,12 @@ class Database:
     def __init__(self, database_url: str | None = None) -> None:
         cfg = get_config()
         self._database_url = database_url or cfg.database_url
-        self._engine: AsyncEngine = create_async_engine(self._database_url, echo=False)
+        connect_args = {}
+        if "postgresql+asyncpg" in self._database_url:
+            connect_args["ssl"] = True
+        self._engine: AsyncEngine = create_async_engine(
+            self._database_url, echo=False, connect_args=connect_args
+        )
         self._session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
             bind=self._engine,
             expire_on_commit=False,
