@@ -262,9 +262,17 @@ async function loadDashboard() {
     `;
   } catch (e) {
     console.error(e);
-    if (onboardingCard) onboardingCard.style.display = "none";
-    if (dashboardContent) dashboardContent.style.display = "block";
-    showError("Nu am putut încărca panoul zilnic. Verifică că serverul rulează și că ID-ul din adresă este corect.");
+    cachedUser = null;
+    if (onboardingHint) onboardingHint.style.display = "none";
+    if (onboardingCard) onboardingCard.style.display = "block";
+    if (dashboardContent) dashboardContent.style.display = "none";
+    const greetingBanner = document.getElementById("greeting-banner");
+    if (greetingBanner) greetingBanner.style.display = "none";
+    const errEl = document.getElementById("onboarding-error");
+    if (errEl) {
+      errEl.textContent = "Completează formularul de mai jos pentru a crea profilul.";
+      errEl.style.display = "block";
+    }
   }
   syncSettingsFromUser();
 }

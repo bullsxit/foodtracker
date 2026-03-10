@@ -12,7 +12,7 @@ from typing import Any
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Select, func, select, delete
@@ -167,64 +167,78 @@ def _recalculate_target_calories(user: User) -> float:
 async def get_dashboard(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    user_stmt: Select = select(User).where(User.telegram_id == telegram_id)
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalars().first()
-    if not user:
+) -> Any:
+    try:
+        user_stmt: Select = select(User).where(User.telegram_id == telegram_id)
+        user_result = await session.execute(user_stmt)
+        user = user_result.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not (user.name and user.name.strip()):
+            await session.execute(delete(User).where(User.telegram_id == telegram_id))
+            await session.commit()
+            raise HTTPException(status_code=404, detail="User not found")
+
+        today = date.today()
+        calories_stmt: Select = select(DailyCalories).where(
+            DailyCalories.telegram_id == telegram_id,
+            DailyCalories.date == today,
+        )
+        calories_result = await session.execute(calories_stmt)
+        daily = calories_result.scalars().first()
+        consumed = daily.total_calories if daily else 0.0
+
+        weight_today_stmt: Select = select(WeightHistory).where(
+            WeightHistory.telegram_id == telegram_id,
+            WeightHistory.date == today,
+        )
+        weight_today_result = await session.execute(weight_today_stmt)
+        weight_logged_today = weight_today_result.scalars().first() is not None
+
+        macros_stmt: Select = select(
+            func.coalesce(func.sum(Food.protein), 0),
+            func.coalesce(func.sum(Food.carbs), 0),
+            func.coalesce(func.sum(Food.fat), 0),
+        ).where(
+            Food.telegram_id == telegram_id,
+            Food.date == today,
+        )
+        macros_result = await session.execute(macros_stmt)
+        row = macros_result.one()
+        consumed_protein = float(row[0])
+        consumed_carbs = float(row[1])
+        consumed_fat = float(row[2])
+
+        target = user.target_calories or 2000.0
+        target_protein_g = (target * 0.30) / 4.0
+        target_carbs_g = (target * 0.40) / 4.0
+        target_fat_g = (target * 0.30) / 9.0
+
+        water_service = WaterService(session)
+        water_today = await water_service.get_today_total(telegram_id)
+
+        payload = {
+            "user": _serialize_user(user),
+            "today": str(today),
+            "calories_today": consumed,
+            "water_today_ml": water_today,
+            "weight_logged_today": weight_logged_today,
+            "consumed_protein": consumed_protein,
+            "consumed_carbs": consumed_carbs,
+            "consumed_fat": consumed_fat,
+            "target_protein_g": target_protein_g,
+            "target_carbs_g": target_carbs_g,
+            "target_fat_g": target_fat_g,
+        }
+        return JSONResponse(
+            content=payload,
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        _logger.exception("Dashboard error for telegram_id=%s: %s", telegram_id, e)
         raise HTTPException(status_code=404, detail="User not found")
-
-    today = date.today()
-    calories_stmt: Select = select(DailyCalories).where(
-        DailyCalories.telegram_id == telegram_id,
-        DailyCalories.date == today,
-    )
-    calories_result = await session.execute(calories_stmt)
-    daily = calories_result.scalars().first()
-    consumed = daily.total_calories if daily else 0.0
-
-    weight_today_stmt: Select = select(WeightHistory).where(
-        WeightHistory.telegram_id == telegram_id,
-        WeightHistory.date == today,
-    )
-    weight_today_result = await session.execute(weight_today_stmt)
-    weight_logged_today = weight_today_result.scalars().first() is not None
-
-    macros_stmt: Select = select(
-        func.coalesce(func.sum(Food.protein), 0),
-        func.coalesce(func.sum(Food.carbs), 0),
-        func.coalesce(func.sum(Food.fat), 0),
-    ).where(
-        Food.telegram_id == telegram_id,
-        Food.date == today,
-    )
-    macros_result = await session.execute(macros_stmt)
-    row = macros_result.one()
-    consumed_protein = float(row[0])
-    consumed_carbs = float(row[1])
-    consumed_fat = float(row[2])
-
-    target = user.target_calories or 2000.0
-    target_protein_g = (target * 0.30) / 4.0
-    target_carbs_g = (target * 0.40) / 4.0
-    target_fat_g = (target * 0.30) / 9.0
-
-    water_service = WaterService(session)
-    water_today = await water_service.get_today_total(telegram_id)
-
-    return {
-        "user": _serialize_user(user),
-        "today": str(today),
-        "calories_today": consumed,
-        "water_today_ml": water_today,
-        "weight_logged_today": weight_logged_today,
-        "consumed_protein": consumed_protein,
-        "consumed_carbs": consumed_carbs,
-        "consumed_fat": consumed_fat,
-        "target_protein_g": target_protein_g,
-        "target_carbs_g": target_carbs_g,
-        "target_fat_g": target_fat_g,
-    }
 
 
 @app.post("/api/register")
