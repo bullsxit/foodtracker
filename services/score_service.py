@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import DailyCalories, Food, User, WaterIntake, Workout
+from database.query_helpers import tid_literal
 
 
 class ScoreService:
@@ -23,7 +24,7 @@ class ScoreService:
 
         # ── Fetch user target calories ─────────────────────────────────────
         user_result = await self._session.execute(
-            select(User).where(User.telegram_id == telegram_id)
+            select(User).where(User.telegram_id == tid_literal(telegram_id))
         )
         user = user_result.scalars().first()
         if not user:
@@ -37,7 +38,7 @@ class ScoreService:
         # ── Calorie adherence – last 7 days average ────────────────────────
         cal_result = await self._session.execute(
             select(func.avg(DailyCalories.total_calories)).where(
-                DailyCalories.telegram_id == telegram_id,
+                DailyCalories.telegram_id == tid_literal(telegram_id),
                 DailyCalories.date >= start_7,
                 DailyCalories.date <= today,
             )
@@ -65,7 +66,7 @@ class ScoreService:
                 func.coalesce(func.avg(Food.carbs), 0),
                 func.coalesce(func.avg(Food.fat), 0),
             ).where(
-                Food.telegram_id == telegram_id,
+                Food.telegram_id == tid_literal(telegram_id),
                 Food.date >= start_7,
                 Food.date <= today,
             )
@@ -94,7 +95,7 @@ class ScoreService:
         water_result = await self._session.execute(
             select(WaterIntake.date, func.sum(WaterIntake.amount_ml))
             .where(
-                WaterIntake.telegram_id == telegram_id,
+                WaterIntake.telegram_id == tid_literal(telegram_id),
                 WaterIntake.date >= start_7,
                 WaterIntake.date <= today,
             )
@@ -125,7 +126,7 @@ class ScoreService:
         # ── Workouts this week ─────────────────────────────────────────────
         workout_result = await self._session.execute(
             select(func.count(Workout.id)).where(
-                Workout.telegram_id == telegram_id,
+                Workout.telegram_id == tid_literal(telegram_id),
                 Workout.date >= start_week,
                 Workout.date <= today,
             )
@@ -184,7 +185,7 @@ class ScoreService:
         # Calories check
         cal_result = await self._session.execute(
             select(DailyCalories.total_calories).where(
-                DailyCalories.telegram_id == telegram_id,
+                DailyCalories.telegram_id == tid_literal(telegram_id),
                 DailyCalories.date == day,
             )
         )
@@ -197,7 +198,7 @@ class ScoreService:
         # Water check
         water_result = await self._session.execute(
             select(func.sum(WaterIntake.amount_ml)).where(
-                WaterIntake.telegram_id == telegram_id,
+                WaterIntake.telegram_id == tid_literal(telegram_id),
                 WaterIntake.date == day,
             )
         )

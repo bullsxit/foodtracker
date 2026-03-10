@@ -11,6 +11,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import DailyCalories, WeightHistory
+from database.query_helpers import tid_literal
 
 
 @dataclass
@@ -36,7 +37,7 @@ class StatisticsService:
         stmt: Select = (
             select(DailyCalories.date, DailyCalories.total_calories)
             .where(
-                DailyCalories.telegram_id == telegram_id,
+                DailyCalories.telegram_id == tid_literal(telegram_id),
                 DailyCalories.date >= start_date,
                 DailyCalories.date <= end_date,
             )
@@ -56,7 +57,7 @@ class StatisticsService:
         stmt = (
             select(func.avg(DailyCalories.total_calories))
             .where(
-                DailyCalories.telegram_id == telegram_id,
+                DailyCalories.telegram_id == tid_literal(telegram_id),
                 DailyCalories.date >= start_date,
                 DailyCalories.date <= end_date,
             )
@@ -110,7 +111,7 @@ class StatisticsService:
         stmt: Select = (
             select(WeightHistory.date, WeightHistory.weight)
             .where(
-                WeightHistory.telegram_id == telegram_id,
+                WeightHistory.telegram_id == tid_literal(telegram_id),
                 WeightHistory.date >= start_date,
                 WeightHistory.date <= end_date,
             )

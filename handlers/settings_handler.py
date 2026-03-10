@@ -12,6 +12,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import DailyCalories, Food, User, WeightHistory
+from database.query_helpers import tid_literal
 from utils.keyboards import get_main_menu_keyboard, settings_keyboard
 from utils.validators import parse_float, parse_int
 
@@ -55,10 +56,10 @@ async def settings_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def reset_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async for session in db.session():
         telegram_id = update.effective_user.id  # type: ignore[arg-type]
-        await session.execute(delete(WeightHistory).where(WeightHistory.telegram_id == telegram_id))
-        await session.execute(delete(Food).where(Food.telegram_id == telegram_id))
-        await session.execute(delete(DailyCalories).where(DailyCalories.telegram_id == telegram_id))
-        await session.execute(delete(User).where(User.telegram_id == telegram_id))
+        await session.execute(delete(WeightHistory).where(WeightHistory.telegram_id == tid_literal(telegram_id)))
+        await session.execute(delete(Food).where(Food.telegram_id == tid_literal(telegram_id)))
+        await session.execute(delete(DailyCalories).where(DailyCalories.telegram_id == tid_literal(telegram_id)))
+        await session.execute(delete(User).where(User.telegram_id == tid_literal(telegram_id)))
         await session.commit()
     await update.effective_chat.send_message(
         "Profilul tău a fost resetat complet. Folosește /start pentru a-l configura din nou.",
@@ -90,7 +91,7 @@ async def change_personal_height(update: Update, context: ContextTypes.DEFAULT_T
         )
         return SettingsState.CHANGE_PERSONAL_HEIGHT
     async for session in db.session():
-        stmt = select(User).where(User.telegram_id == update.effective_user.id)  # type: ignore[arg-type]
+        stmt = select(User).where(User.telegram_id == tid_literal(update.effective_user.id))  # type: ignore[arg-type]
         result = await session.execute(stmt)
         user = result.scalars().first()
         if not user:
@@ -120,7 +121,7 @@ async def change_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return SettingsState.CHANGE_ACTIVITY
     async for session in db.session():
-        stmt = select(User).where(User.telegram_id == update.effective_user.id)  # type: ignore[arg-type]
+        stmt = select(User).where(User.telegram_id == tid_literal(update.effective_user.id))  # type: ignore[arg-type]
         result = await session.execute(stmt)
         user = result.scalars().first()
         if not user:

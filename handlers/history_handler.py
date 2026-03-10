@@ -14,6 +14,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import Food
+from database.query_helpers import tid_literal
 from utils.keyboards import history_navigation_keyboard, get_main_menu_keyboard
 
 
@@ -42,7 +43,7 @@ async def _render_diary_for_date(
     stmt: Select = (
         select(Food)
         .where(
-            Food.telegram_id == telegram_id,
+            Food.telegram_id == tid_literal(telegram_id),
             Food.date == target_date,
         )
         .order_by(Food.id)

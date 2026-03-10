@@ -14,6 +14,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import User, WeightHistory
+from database.query_helpers import tid_literal
 from utils.keyboards import get_main_menu_keyboard, profile_keyboard
 from utils.validators import parse_float
 
@@ -24,7 +25,7 @@ class ProfileState:
 
 
 async def _get_user(session: AsyncSession, telegram_id: int) -> User | None:
-    stmt: Select = select(User).where(User.telegram_id == telegram_id)
+    stmt: Select = select(User).where(User.telegram_id == tid_literal(telegram_id))
     result = await session.execute(stmt)
     return result.scalars().first()
 

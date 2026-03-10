@@ -14,6 +14,7 @@ from telegram.ext import (
 
 from database.database import db
 from database.models import DailyCalories, Food, User
+from database.query_helpers import tid_literal
 from services.calorie_ai_service import (
     CalorieAIService,
     FoodAnalysisResult,
@@ -223,14 +224,14 @@ async def show_today_calories(
 ) -> int:
     async for session in db.session():
         stmt: Select = select(DailyCalories).where(
-            DailyCalories.telegram_id == update.effective_user.id,  # type: ignore[arg-type]
+            DailyCalories.telegram_id == tid_literal(update.effective_user.id),  # type: ignore[arg-type]
             DailyCalories.date == date.today(),
         )
         result = await session.execute(stmt)
         daily = result.scalars().first()
 
         user_stmt: Select = select(User).where(
-            User.telegram_id == update.effective_user.id  # type: ignore[arg-type]
+            User.telegram_id == tid_literal(update.effective_user.id)  # type: ignore[arg-type]
         )
         user_result = await session.execute(user_stmt)
         user = user_result.scalars().first()
@@ -271,7 +272,7 @@ async def _save_food_and_update_daily(
     session.add(food)
 
     stmt: Select = select(DailyCalories).where(
-        DailyCalories.telegram_id == telegram_id,
+        DailyCalories.telegram_id == tid_literal(telegram_id),
         DailyCalories.date == entry_date,
     )
     result = await session.execute(stmt)

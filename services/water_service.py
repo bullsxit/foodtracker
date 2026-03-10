@@ -8,6 +8,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import WaterIntake
+from database.query_helpers import tid_literal
 
 
 @dataclass
@@ -34,7 +35,7 @@ class WaterService:
         stmt = (
             select(func.sum(WaterIntake.amount_ml))
             .where(
-                WaterIntake.telegram_id == telegram_id,
+                WaterIntake.telegram_id == tid_literal(telegram_id),
                 WaterIntake.date == date.today(),
             )
             .scalar_subquery()
@@ -52,7 +53,7 @@ class WaterService:
         stmt: Select = (
             select(WaterIntake.date, func.sum(WaterIntake.amount_ml))
             .where(
-                WaterIntake.telegram_id == telegram_id,
+                WaterIntake.telegram_id == tid_literal(telegram_id),
                 WaterIntake.date >= start_date,
                 WaterIntake.date <= end_date,
             )
