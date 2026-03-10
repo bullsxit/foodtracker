@@ -4,6 +4,35 @@ This guide gets the app running on **free services only**: **Render** (web app +
 
 ---
 
+## Branch strategy (production vs experiments)
+
+| Branch / tag | Role |
+|--------------|------|
+| **master** | Production. Deploy on Render from this branch. |
+| **v1.0-stable** | Git tag = snapshot of the current working production version (backup before optimizations). |
+| **optimize** | Experiment branch for optimizations (lazy charts, cache, lighter API). Do **not** deploy production from here until merged into master. |
+
+- To restore production to the tagged version: `git checkout v1.0-stable` (detached) or merge that tag into master.
+- To work on optimizations: `git checkout optimize`; when stable, merge into master and redeploy.
+
+### Revert la aplicația care mergea (backup)
+
+Dacă după modificări deploy-urile nu mai merg și vrei să revii la versiunea salvată:
+
+1. **Ce ai salvat:** codul aplicației la momentul tag-ului `v1.0-stable` (backup complet al codului). Baza de date (Neon) și variabilele de pe Render rămân cum sunt – nu se pierd.
+2. **Ca Render să deployeze din nou versiunea veche:**
+   - În repo, pe calculatorul tău:
+     - `git fetch origin`
+     - `git checkout master`
+     - `git reset --hard v1.0-stable`   (sau `origin/v1.0-stable` dacă tag-ul e push-uit)
+     - `git push origin master --force`
+   - Render va face automat un nou deploy de pe `master`; va rula codul de la `v1.0-stable`.
+3. **Important:** Fă push la tag înainte de orice experiment, ca să existe și pe GitHub:  
+   `git push origin v1.0-stable`  
+   Dacă tag-ul e deja pe GitHub, poți reveni oricând la el (chiar și de pe alt calculator sau după un clone nou).
+
+---
+
 ## Prerequisites
 
 - A **GitHub** account and this repo pushed to GitHub (public or private; Render connects via GitHub).
@@ -73,6 +102,33 @@ This guide gets the app running on **free services only**: **Render** (web app +
 
 - All users use the **same** Neon database. The **Leaderboard** tab in the Mini App (5th tab) shows a single global ranking (score + streak). No extra configuration.
 
+### 5.1 Wipe database (fresh start)
+
+**Important:** The Mini App on Telegram uses the database configured in **Render** (Environment → `DATABASE_URL`). To wipe that data, you must run the wipe **against that same URL**. If your local `.env` has a different URL (e.g. SQLite or another Neon project), you would wipe the wrong database and the Mini App will still show old data.
+
+**Option 1 – Use the same URL as Render (recommended)**
+
+1. In **Render**: open your FoodTracker service → **Environment** → find `DATABASE_URL` → click **Reveal** and copy the full value (starts with `postgresql://` or `postgres://`).
+2. On your machine, from the project root with venv activated, run (paste your copied URL inside the quotes):
+   ```bash
+   DATABASE_URL="postgresql://user:pass@host/db?sslmode=require" python scripts/wipe_database.py --yes
+   ```
+   Replace the whole `"postgresql://..."` with your actual value from Render.
+3. You should see: `Truncated all tables (PostgreSQL).` and `Done. Database is empty.`
+4. Open the Mini App again in Telegram; it should ask you to register from scratch.
+
+**Option 2 – Neon SQL Editor (same database as Render)**
+
+1. In **Render** → Environment, note which Neon project/database `DATABASE_URL` points to (host looks like `ep-xxx-xxx.region.aws.neon.tech`).
+2. In **Neon**: go to [neon.tech](https://neon.tech) → the **same** project (and branch if you use one) that Render uses.
+3. Open **SQL Editor** and run:
+   ```sql
+   TRUNCATE TABLE water_intake, workouts, foods, daily_calories, weight_history, users RESTART IDENTITY CASCADE;
+   ```
+4. Open the Mini App again in Telegram; it should ask you to register from scratch.
+
+If you use a local `.env` with a different `DATABASE_URL` (e.g. for local dev), do **not** rely on `python scripts/wipe_database.py` without setting `DATABASE_URL` in the command as in Option 1 — otherwise you will wipe the wrong database.
+
 ---
 
 ## 6. Free tier limits (summary)
@@ -83,6 +139,8 @@ This guide gets the app running on **free services only**: **Render** (web app +
 | **Neon** | Free tier: 0.5 GB storage, generous compute; no credit card required. |
 
 To reduce cold starts, you can use a free “cron” service (e.g. cron-job.org) to hit your Render URL every 10–15 minutes; keep the interval respectful to stay within fair use.
+
+The app is optimized for free tier: **matplotlib/pandas** load only when generating charts (lazy import), and the **leaderboard** is cached in memory for 60 seconds and invalidated when users add meals, water, workouts, or change profile.
 
 ---
 

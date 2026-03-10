@@ -160,6 +160,7 @@ async function loadDashboard() {
     });
 
     if (response.status === 404) {
+      cachedUser = null;
       const greetingBanner = document.getElementById("greeting-banner");
       if (greetingBanner) greetingBanner.style.display = "none";
       if (onboardingCard) onboardingCard.style.display = "block";
@@ -249,9 +250,12 @@ async function loadDashboard() {
     `;
   } catch (e) {
     console.error(e);
-    if (onboardingCard) onboardingCard.style.display = "none";
-    if (dashboardContent) dashboardContent.style.display = "block";
-    showError("Nu am putut încărca panoul zilnic. Verifică că serverul rulează și că ID-ul din adresă este corect.");
+    cachedUser = null;
+    if (onboardingCard) onboardingCard.style.display = "block";
+    if (dashboardContent) dashboardContent.style.display = "none";
+    const greetingBanner = document.getElementById("greeting-banner");
+    if (greetingBanner) greetingBanner.style.display = "none";
+    showError("Nu am putut încărca panoul. Dacă ești un utilizator nou, completează formularul de mai jos.");
   }
   syncSettingsFromUser();
 }
@@ -514,6 +518,13 @@ window.addEventListener("DOMContentLoaded", () => {
   if (dateInput) {
     const today = new Date().toISOString().slice(0, 10);
     dateInput.value = today;
+  }
+  const reloadSessionBtn = document.getElementById("reload-session-btn");
+  if (reloadSessionBtn) {
+    reloadSessionBtn.addEventListener("click", () => {
+      cachedUser = null;
+      location.reload();
+    });
   }
   loadDashboard();
   loadStats();

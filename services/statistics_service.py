@@ -5,8 +5,6 @@ from datetime import date, timedelta
 from io import BytesIO
 from typing import Sequence
 
-import matplotlib.pyplot as plt
-import pandas as pd
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +70,9 @@ class StatisticsService:
         telegram_id: int,
         days: int,
     ) -> bytes:
+        import matplotlib.pyplot as plt
+        import pandas as pd
+
         stats = await self.get_daily_calories_range(telegram_id, days)
 
         if not stats:
@@ -124,6 +125,9 @@ class StatisticsService:
         telegram_id: int,
         days: int,
     ) -> bytes:
+        import matplotlib.pyplot as plt
+        import pandas as pd
+
         rows = await self.get_weight_range(telegram_id, days)
         if not rows:
             fig, ax = plt.subplots()

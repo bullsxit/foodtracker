@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Select, func, select, delete
@@ -44,6 +45,15 @@ from services.score_service import ScoreService  # noqa: E402
 from config import get_config  # type: ignore[import-not-found]  # noqa: E402
 
 _logger = logging.getLogger(__name__)
+
+# In-memory cache for leaderboard (free tier: reduce DB + score computation load).
+_leaderboard_cache: tuple[float, dict[str, Any]] | None = None
+_LEADERBOARD_TTL_SEC = 60.0
+
+
+def _invalidate_leaderboard_cache() -> None:
+    global _leaderboard_cache
+    _leaderboard_cache = None
 
 # Telegram Application instance — set during lifespan startup in webhook mode.
 _bot_app: Any = None  # type: Any avoids IDE needing telegram SDK installed
@@ -167,11 +177,16 @@ def _recalculate_target_calories(user: User) -> float:
 async def get_dashboard(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
+) -> Any:
     user_stmt: Select = select(User).where(User.telegram_id == telegram_id)
     user_result = await session.execute(user_stmt)
     user = user_result.scalars().first()
     if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Treat incomplete/ghost users (e.g. empty name) as missing so Mini App shows onboarding
+    if not (user.name and user.name.strip()):
+        await session.execute(delete(User).where(User.telegram_id == telegram_id))
+        await session.commit()
         raise HTTPException(status_code=404, detail="User not found")
 
     today = date.today()
@@ -212,7 +227,7 @@ async def get_dashboard(
     water_service = WaterService(session)
     water_today = await water_service.get_today_total(telegram_id)
 
-    return {
+    payload = {
         "user": _serialize_user(user),
         "today": str(today),
         "calories_today": consumed,
@@ -225,6 +240,10 @@ async def get_dashboard(
         "target_carbs_g": target_carbs_g,
         "target_fat_g": target_fat_g,
     }
+    return JSONResponse(
+        content=payload,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
 
 
 @app.post("/api/register")
@@ -275,6 +294,7 @@ async def register(
     )
     session.add(user)
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {"user": _serialize_user(user)}
 
 
@@ -287,6 +307,7 @@ async def add_water(
     water_service = WaterService(session)
     await water_service.add_water(telegram_id, amount_ml)
     await session.commit()
+    _invalidate_leaderboard_cache()
     total = await water_service.get_today_total(telegram_id)
     return {"water_today_ml": total}
 
@@ -407,6 +428,7 @@ async def add_manual_meal(
         entry_date=date.today(),
     )
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {"status": "ok"}
 
 
@@ -448,6 +470,7 @@ async def log_weight(
     # Recalculate target calories when weight changes
     user.target_calories = _recalculate_target_calories(user)
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {
         "user": _serialize_user(user),
     }
@@ -469,6 +492,7 @@ async def update_personal(
     user.height_cm = height_cm
     user.target_calories = _recalculate_target_calories(user)
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {"user": _serialize_user(user)}
 
 
@@ -488,6 +512,7 @@ async def update_goal(
     user.goal = goal
     user.target_calories = _recalculate_target_calories(user)
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {"user": _serialize_user(user)}
 
 
@@ -512,6 +537,7 @@ async def update_activity(
     user.activity_level = activity_level
     user.target_calories = _recalculate_target_calories(user)
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {"user": _serialize_user(user)}
 
 
@@ -537,12 +563,16 @@ async def reset_profile_api(
             delete(WaterIntake).where(WaterIntake.telegram_id == telegram_id)
         )
         await session.execute(
+            delete(Workout).where(Workout.telegram_id == telegram_id)
+        )
+        await session.execute(
             delete(User).where(User.telegram_id == telegram_id)
         )
         await session.commit()
     except Exception as e:
         await session.rollback()
         raise HTTPException(status_code=500, detail=str(e)) from e
+    _invalidate_leaderboard_cache()
     return {"status": "reset"}
 
 
@@ -812,6 +842,13 @@ async def get_leaderboard(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Return all users ranked by score (desc), streak (desc) as tiebreaker."""
+    global _leaderboard_cache
+    now = time.monotonic()
+    if _leaderboard_cache is not None:
+        cached_at, payload = _leaderboard_cache
+        if now - cached_at < _LEADERBOARD_TTL_SEC:
+            return payload
+
     users_result = await session.execute(select(User).order_by(User.name))
     users = users_result.scalars().all()
 
@@ -840,7 +877,9 @@ async def get_leaderboard(
             rank = ranked[-1]["rank"]
         ranked.append({**entry, "rank": rank})
 
-    return {"leaderboard": ranked}
+    payload = {"leaderboard": ranked}
+    _leaderboard_cache = (now, payload)
+    return payload
 
 
 # ── Workouts ───────────────────────────────────────────────────────────────────
@@ -864,6 +903,7 @@ async def add_workout(
     )
     session.add(workout)
     await session.commit()
+    _invalidate_leaderboard_cache()
     return {"status": "ok"}
 
 
