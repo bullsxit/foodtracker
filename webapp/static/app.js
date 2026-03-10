@@ -332,7 +332,12 @@ if (onboardingSubmit) {
     } catch (e) {
       console.error(e);
       if (errEl) {
-        errEl.textContent = e.message || "Nu am putut crea profilul.";
+        let msg = e.message || "Nu am putut crea profilul.";
+        try {
+          const parsed = JSON.parse(e.message || "{}");
+          if (parsed.detail) msg = typeof parsed.detail === "string" ? parsed.detail : msg;
+        } catch (_) {}
+        errEl.textContent = msg;
         errEl.style.display = "block";
       }
     }

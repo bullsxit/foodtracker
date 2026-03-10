@@ -16,6 +16,7 @@ from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Select, func, select, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Ensure project root is in sys.path so imports from root modules work
@@ -254,10 +255,12 @@ async def register(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Create a new user profile (onboarding from mini app)."""
-    stmt: Select = select(User).where(User.telegram_id == telegram_id)
-    result = await session.execute(stmt)
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="User already exists")
+    goal = goal.strip() if goal else ""
+    activity_level = activity_level.strip() if activity_level else ""
+    name = name.strip() if name else ""
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Numele este obligatoriu.")
     if gender not in ("male", "female"):
         raise HTTPException(status_code=400, detail="Invalid gender")
     if goal not in ("Slăbire", "Menținere", "Creștere"):
@@ -265,31 +268,51 @@ async def register(
     if activity_level not in ("Sedentar", "Ușor activ", "Moderat activ", "Foarte activ"):
         raise HTTPException(status_code=400, detail="Invalid activity level")
 
-    calc = CalorieCalculationService()
-    inp = CalorieCalculationInput(
-        age=age,
-        height_cm=height_cm,
-        weight_kg=weight_kg,
-        gender=gender,
-        activity_level=activity_level,
-        goal=goal,
-    )
-    target = calc.calculate_target_calories(inp)
-    user = User(
-        telegram_id=telegram_id,
-        name=name.strip(),
-        age=age,
-        height_cm=height_cm,
-        current_weight=weight_kg,
-        start_weight=weight_kg,
-        goal=goal,
-        activity_level=activity_level,
-        target_calories=target,
-        gender=gender,
-    )
-    session.add(user)
-    await session.commit()
-    return {"user": _serialize_user(user)}
+    try:
+        stmt: Select = select(User).where(User.telegram_id == telegram_id)
+        result = await session.execute(stmt)
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="User already exists")
+
+        calc = CalorieCalculationService()
+        inp = CalorieCalculationInput(
+            age=age,
+            height_cm=height_cm,
+            weight_kg=weight_kg,
+            gender=gender,
+            activity_level=activity_level,
+            goal=goal,
+        )
+        target = calc.calculate_target_calories(inp)
+        user = User(
+            telegram_id=telegram_id,
+            name=name,
+            age=age,
+            height_cm=height_cm,
+            current_weight=weight_kg,
+            start_weight=weight_kg,
+            goal=goal,
+            activity_level=activity_level,
+            target_calories=target,
+            gender=gender,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return {"user": _serialize_user(user)}
+    except HTTPException:
+        raise
+    except IntegrityError as e:
+        await session.rollback()
+        _logger.warning("Register IntegrityError telegram_id=%s: %s", telegram_id, e)
+        raise HTTPException(status_code=400, detail="User already exists")
+    except Exception as e:
+        await session.rollback()
+        _logger.exception("Register failed telegram_id=%s: %s", telegram_id, e)
+        raise HTTPException(
+            status_code=400,
+            detail="Nu am putut crea profilul. Încearcă din nou sau deschide aplicația din Menu-ul botului.",
+        )
 
 
 @app.post("/api/water/{telegram_id}/add")
