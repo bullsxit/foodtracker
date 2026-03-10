@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+
+# Headless server: use non-GUI backend for matplotlib (e.g. Render, Docker).
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import Response

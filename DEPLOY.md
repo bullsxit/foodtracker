@@ -103,6 +103,8 @@ To reduce cold starts, you can use a free “cron” service (e.g. cron-job.org)
 - **Leaderboard empty:**  
   - At least one user must have completed onboarding and have score/streak data. Use the app, add meals/water/workouts, then open the Leaderboard tab.
 
+- **Deploy exits with status 3 / Matplotlib:** The app sets `MPLBACKEND=Agg` at startup for headless servers. If problems persist, add env var `MPLBACKEND` = `Agg` on Render.
+
 ---
 
 ## 8. Local development (unchanged)
