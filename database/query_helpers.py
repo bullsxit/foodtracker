@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from sqlalchemy import bindparam
-from sqlalchemy.types import BigInteger
+from sqlalchemy.dialects.postgresql import BIGINT as PG_BIGINT
 
 
 def tid_literal(val: int):
     """Bind telegram_id as BIGINT so asyncpg does not cast to INTEGER (int32)."""
-    return bindparam("tid", val, type_=BigInteger())
+    return bindparam("tid", val, type_=PG_BIGINT())

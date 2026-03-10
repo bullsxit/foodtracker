@@ -15,10 +15,10 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File, 
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import Select, bindparam, func, select, delete
+from sqlalchemy import Select, bindparam, func, select, delete, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.types import BigInteger
+from sqlalchemy.dialects.postgresql import BIGINT as PG_BIGINT
 
 # Ensure project root is in sys.path so imports from root modules work
 # both at runtime (uvicorn runs from root) and in IDE / tests.
@@ -50,12 +50,12 @@ _logger = logging.getLogger(__name__)
 
 def _tid(val: int):
     """Bind telegram_id as BIGINT so asyncpg does not cast to INTEGER (int32)."""
-    return bindparam("tid", val, type_=BigInteger())
+    return bindparam("tid", val, type_=PG_BIGINT())
 
 
 def _tid_bindparam(key: str = "tid"):
     """Use with .where(col == _tid_bindparam()) then session.execute(stmt, {key: telegram_id})."""
-    return bindparam(key, type_=BigInteger())
+    return bindparam(key, type_=PG_BIGINT())
 
 
 # Telegram Application instance — set during lifespan startup in webhook mode.
@@ -326,9 +326,12 @@ async def register(
         raise HTTPException(status_code=400, detail="Alege nivelul de activitate.")
 
     try:
-        stmt: Select = select(User).where(User.telegram_id == _tid(telegram_id))
-        result = await session.execute(stmt)
-        if result.scalars().first():
+        # Use raw SQL with CAST so asyncpg never sees an int32; param as string.
+        check_sql = text(
+            "SELECT 1 FROM users WHERE telegram_id = CAST(:tid AS BIGINT)"
+        )
+        result = await session.execute(check_sql, {"tid": str(telegram_id)})
+        if result.scalar_one_or_none() is not None:
             raise HTTPException(status_code=400, detail="Contul există deja. Deschide aplicația din Menu – ar trebui să vezi panoul.")
 
         calc = CalorieCalculationService()
