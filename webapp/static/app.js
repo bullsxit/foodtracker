@@ -22,8 +22,10 @@ function getTelegramId() {
   return tid ? parseInt(tid, 10) : null;
 }
 
-const telegramId = getTelegramId();
+let telegramId = getTelegramId();
 let cachedUser = null;
+let _dashboardRetryCount = 0;
+const MAX_DASHBOARD_RETRIES = 3;
 
 function showError(message) {
   alert(message);
@@ -142,17 +144,26 @@ if (toggleCaloriesChartBtn && caloriesChartContainer) {
 }
 
 async function loadDashboard() {
+  telegramId = getTelegramId();
   const onboardingCard = document.getElementById("onboarding-card");
   const dashboardContent = document.getElementById("dashboard-content");
+  const onboardingHint = document.getElementById("onboarding-no-id-hint");
 
   if (!telegramId) {
-    if (onboardingCard) onboardingCard.style.display = "none";
+    if (onboardingHint) onboardingHint.style.display = "block";
+    if (onboardingCard) onboardingCard.style.display = "block";
     if (dashboardContent) dashboardContent.style.display = "none";
-    showError(
-      "Lipsește ID-ul utilizatorului. Adaugă în adresă: ?tid=ID_TELEGRAM"
-    );
+    const greetingBanner = document.getElementById("greeting-banner");
+    if (greetingBanner) greetingBanner.style.display = "none";
+    if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
+      _dashboardRetryCount += 1;
+      setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+    }
     return;
   }
+
+  if (onboardingHint) onboardingHint.style.display = "none";
+  _dashboardRetryCount = 0;
 
   try {
     const response = await fetch(`${API_BASE}/dashboard/${telegramId}`, {
@@ -160,8 +171,10 @@ async function loadDashboard() {
     });
 
     if (response.status === 404) {
+      cachedUser = null;
       const greetingBanner = document.getElementById("greeting-banner");
       if (greetingBanner) greetingBanner.style.display = "none";
+      if (onboardingHint) onboardingHint.style.display = "none";
       if (onboardingCard) onboardingCard.style.display = "block";
       if (dashboardContent) dashboardContent.style.display = "none";
       syncSettingsFromUser();
@@ -260,7 +273,16 @@ async function loadDashboard() {
 const onboardingSubmit = document.getElementById("onboarding-submit");
 if (onboardingSubmit) {
   onboardingSubmit.addEventListener("click", async () => {
-    if (!telegramId) return;
+    const currentId = getTelegramId();
+    if (!currentId) {
+      const errEl = document.getElementById("onboarding-error");
+      if (errEl) {
+        errEl.textContent = "Nu te putem identifica. Deschide aplicația din butonul Menu al botului și încearcă din nou.";
+        errEl.style.display = "block";
+      }
+      return;
+    }
+    telegramId = currentId;
     const errEl = document.getElementById("onboarding-error");
     const nameEl = document.getElementById("onboarding-name");
     const ageEl = document.getElementById("onboarding-age");
@@ -508,19 +530,29 @@ async function loadStats() {
   }
 }
 
-// Initial load
+// Initial load – delay slightly so Telegram WebApp can inject user id
 window.addEventListener("DOMContentLoaded", () => {
   const dateInput = document.getElementById("history-date");
   if (dateInput) {
     const today = new Date().toISOString().slice(0, 10);
     dateInput.value = today;
   }
-  loadDashboard();
-  loadStats();
-  if (telegramId) {
-    loadScore();
-    loadWeekWorkouts();
+  const reloadSessionBtn = document.getElementById("reload-session-btn");
+  if (reloadSessionBtn) {
+    reloadSessionBtn.addEventListener("click", () => {
+      cachedUser = null;
+      _dashboardRetryCount = 0;
+      location.reload();
+    });
   }
+  setTimeout(() => {
+    loadDashboard();
+    loadStats();
+    if (getTelegramId()) {
+      loadScore();
+      loadWeekWorkouts();
+    }
+  }, 150);
 });
 
 // Manual meal saving
