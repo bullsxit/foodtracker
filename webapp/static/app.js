@@ -27,6 +27,13 @@ let cachedUser = null;
 let _dashboardRetryCount = 0;
 const MAX_DASHBOARD_RETRIES = 3;
 
+/** Returns current Telegram user id and keeps telegramId in sync. Use before every API call. */
+function currentTelegramId() {
+  const tid = getTelegramId();
+  if (tid != null) telegramId = tid;
+  return tid;
+}
+
 function showError(message) {
   alert(message);
 }
@@ -68,13 +75,13 @@ document.querySelectorAll(".tab-button").forEach((btn) => {
       .querySelectorAll(".tab")
       .forEach((s) => s.classList.remove("active"));
     document.getElementById(`tab-${tab}`).classList.add("active");
-    if (tab === "progress" && telegramId) {
+    if (tab === "progress" && currentTelegramId()) {
       loadStats();
     }
     if (tab === "leaderboard") {
       loadLeaderboard();
     }
-    if (tab === "history" && telegramId) {
+    if (tab === "history" && currentTelegramId()) {
       loadHistory();
     }
   });
@@ -111,8 +118,9 @@ if (toggleWeightChartBtn && weightChartContainer) {
     const isHidden = weightChartContainer.style.display === "none" || !weightChartContainer.style.display;
     if (isHidden) {
       weightChartContainer.style.display = "block";
-      if (telegramId && !weightChartContainer.querySelector("img")) {
-        const chartUrl = `${API_BASE}/chart/weight/${telegramId}?t=${Date.now()}`;
+      if (currentTelegramId() && !weightChartContainer.querySelector("img")) {
+        const tid = currentTelegramId();
+        const chartUrl = `${API_BASE}/chart/weight/${tid}?t=${Date.now()}`;
         weightChartContainer.innerHTML = `<img src="${chartUrl}" alt="Grafic greutate" />`;
       }
       toggleWeightChartBtn.textContent = "Ascunde grafic greutate";
@@ -131,8 +139,9 @@ if (toggleCaloriesChartBtn && caloriesChartContainer) {
     const isHidden = caloriesChartContainer.style.display === "none" || !caloriesChartContainer.style.display;
     if (isHidden) {
       caloriesChartContainer.style.display = "block";
-      if (telegramId && !caloriesChartContainer.querySelector("img")) {
-        const chartUrl = `${API_BASE}/chart/calories/${telegramId}?t=${Date.now()}`;
+      if (currentTelegramId() && !caloriesChartContainer.querySelector("img")) {
+        const tid = currentTelegramId();
+        const chartUrl = `${API_BASE}/chart/calories/${tid}?t=${Date.now()}`;
         caloriesChartContainer.innerHTML = `<img src="${chartUrl}" alt="Grafic calorii" />`;
       }
       toggleCaloriesChartBtn.textContent = "Ascunde grafic calorii";
@@ -317,7 +326,7 @@ if (onboardingSubmit) {
     if (errEl) errEl.style.display = "none";
 
     const fd = new FormData();
-    fd.append("telegram_id", String(telegramId));
+    fd.append("telegram_id", String(currentTelegramId() ?? telegramId));
     fd.append("name", name);
     fd.append("age", age);
     fd.append("height_cm", height);
@@ -327,17 +336,48 @@ if (onboardingSubmit) {
     fd.append("activity_level", activity);
 
     try {
-      await fetchJsonForm("/register", fd);
-      await loadDashboard();
+      const response = await fetch(`${API_BASE}/register`, {
+        method: "POST",
+        body: fd,
+      });
+      const text = await response.text();
+      let parsed = {};
+      try {
+        parsed = JSON.parse(text);
+      } catch (_) {}
+
+      if (response.ok) {
+        await loadDashboard();
+        return;
+      }
+
+      const detail = (parsed.detail || "").toLowerCase();
+      const alreadyExists = detail.includes("există deja") || detail.includes("already exists");
+      if (response.status === 400 && alreadyExists) {
+        await loadDashboard();
+        return;
+      }
+
+      if (response.status === 503) {
+        if (errEl) {
+          errEl.textContent = "Serviciu ocupat. Reîncercăm în câteva secunde...";
+          errEl.style.display = "block";
+        }
+        setTimeout(() => {
+          if (errEl) errEl.style.display = "none";
+          loadDashboard();
+        }, 3000);
+        return;
+      }
+
+      if (errEl) {
+        errEl.textContent = typeof parsed.detail === "string" ? parsed.detail : (text || "Nu am putut crea profilul.");
+        errEl.style.display = "block";
+      }
     } catch (e) {
       console.error(e);
       if (errEl) {
-        let msg = e.message || "Nu am putut crea profilul.";
-        try {
-          const parsed = JSON.parse(e.message || "{}");
-          if (parsed.detail) msg = typeof parsed.detail === "string" ? parsed.detail : msg;
-        } catch (_) {}
-        errEl.textContent = msg;
+        errEl.textContent = "Eroare de rețea. Verifică conexiunea și încearcă din nou.";
         errEl.style.display = "block";
       }
     }
@@ -363,13 +403,14 @@ function syncSettingsFromUser() {
 // Water buttons
 document.querySelectorAll("[data-add-water]").forEach((btn) => {
   btn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
     const amount = parseInt(btn.dataset.addWater, 10);
     try {
-      const data = await fetchJson(`/water/${telegramId}/add?amount_ml=${amount}`, {
+      const data = await fetchJson(`/water/${tid}/add?amount_ml=${amount}`, {
         method: "POST",
       });
       const waterEl = document.getElementById("water-today");
@@ -391,9 +432,10 @@ document.querySelectorAll("[data-add-water]").forEach((btn) => {
 // History – legacy date-picker flow (only if present in DOM)
 const loadHistoryBtn = document.getElementById("load-history");
 const historyDateInput = document.getElementById("history-date");
-if (loadHistoryBtn && historyDateInput) {
+  if (loadHistoryBtn && historyDateInput) {
   loadHistoryBtn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -407,7 +449,7 @@ if (loadHistoryBtn && historyDateInput) {
       container.innerHTML = "Se încarcă...";
       try {
         const data = await fetchJson(
-          `/meals/${telegramId}/${encodeURIComponent(dateInput.value)}`
+          `/meals/${tid}/${encodeURIComponent(dateInput.value)}`
         );
         if (!data.items.length) {
           container.innerHTML = `<p class="muted">Nu există înregistrări pentru această zi.</p>`;
@@ -450,11 +492,12 @@ if (loadHistoryBtn && historyDateInput) {
 }
 
 async function loadStats() {
-  if (!telegramId) {
+  const tid = currentTelegramId();
+  if (!tid) {
     return;
   }
   try {
-    const data = await fetchJson(`/stats/${telegramId}`);
+    const data = await fetchJson(`/stats/${tid}`);
 
     // Weight summary
     const weightSummaryEl = document.getElementById("weight-summary");
@@ -561,7 +604,7 @@ window.addEventListener("DOMContentLoaded", () => {
   setTimeout(() => {
     loadDashboard();
     loadStats();
-    if (getTelegramId()) {
+    if (currentTelegramId()) {
       loadScore();
       loadWeekWorkouts();
     }
@@ -572,7 +615,8 @@ window.addEventListener("DOMContentLoaded", () => {
 const saveManualBtn = document.getElementById("save-manual-meal");
 if (saveManualBtn) {
   saveManualBtn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -607,7 +651,7 @@ if (saveManualBtn) {
     fd.append("meal_type", typeEl.value);
 
     try {
-      await fetchJsonForm(`/meals/${telegramId}/add_manual`, fd);
+      await fetchJsonForm(`/meals/${tid}/add_manual`, fd);
       showError("Masa a fost salvată.");
       // Reset form and refresh dashboard + score
       nameEl.value = "";
@@ -617,7 +661,7 @@ if (saveManualBtn) {
       carbsEl.value = "";
       fatEl.value = "";
       await loadDashboard();
-      if (telegramId) await loadScore();
+      if (currentTelegramId()) await loadScore();
     } catch (e) {
       console.error(e);
       showError("Nu am putut salva masa.");
@@ -629,7 +673,8 @@ if (saveManualBtn) {
 const photoAnalyzeBtn = document.getElementById("photo-analyze");
 if (photoAnalyzeBtn) {
   photoAnalyzeBtn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -646,7 +691,7 @@ if (photoAnalyzeBtn) {
     resultEl.textContent = "Analizez fotografia...";
     try {
       const data = await fetchJsonForm(
-        `/meals/${telegramId}/analyze_image`,
+        `/meals/${tid}/analyze_image`,
         fd
       );
       const a = data.analysis;
@@ -678,7 +723,8 @@ if (photoAnalyzeBtn) {
 const saveWeightBtn = document.getElementById("save-weight");
 if (saveWeightBtn) {
   saveWeightBtn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -691,7 +737,7 @@ if (saveWeightBtn) {
     fd.append("weight", weightEl.value);
     try {
       const data = await fetchJsonForm(
-        `/user/${telegramId}/log_weight`,
+        `/user/${tid}/log_weight`,
         fd
       );
       cachedUser = data.user;
@@ -710,7 +756,8 @@ if (saveWeightBtn) {
 const savePersonalBtn = document.getElementById("save-personal");
 if (savePersonalBtn) {
   savePersonalBtn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -725,7 +772,7 @@ if (savePersonalBtn) {
     fd.append("height_cm", heightEl.value);
     try {
       const data = await fetchJsonForm(
-        `/user/${telegramId}/update_personal`,
+        `/user/${tid}/update_personal`,
         fd
       );
       cachedUser = data.user;
@@ -743,7 +790,8 @@ if (savePersonalBtn) {
 const saveGoalActivityBtn = document.getElementById("save-goal-activity");
 if (saveGoalActivityBtn) {
   saveGoalActivityBtn.addEventListener("click", async () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -753,7 +801,7 @@ if (saveGoalActivityBtn) {
     goalFd.append("goal", goalEl.value);
     try {
       const goalData = await fetchJsonForm(
-        `/user/${telegramId}/update_goal`,
+        `/user/${tid}/update_goal`,
         goalFd
       );
       cachedUser = goalData.user;
@@ -767,7 +815,7 @@ if (saveGoalActivityBtn) {
     actFd.append("activity_level", actEl.value);
     try {
       const actData = await fetchJsonForm(
-        `/user/${telegramId}/update_activity`,
+        `/user/${tid}/update_activity`,
         actFd
       );
       cachedUser = actData.user;
@@ -789,7 +837,8 @@ const confirmResetYes = document.getElementById("confirm-reset-yes");
 
 if (resetProfileBtn) {
   resetProfileBtn.addEventListener("click", () => {
-    if (!telegramId) {
+    const tid = currentTelegramId();
+    if (!tid) {
       showError("Nu pot identifica utilizatorul.");
       return;
     }
@@ -805,10 +854,11 @@ if (confirmResetNo) {
 
 if (confirmResetYes) {
   confirmResetYes.addEventListener("click", async () => {
-    if (!telegramId) return;
+    const tid = currentTelegramId();
+    if (!tid) return;
     if (confirmOverlay) confirmOverlay.style.display = "none";
     try {
-      const response = await fetch(`${API_BASE}/user/${telegramId}/reset`, {
+      const response = await fetch(`${API_BASE}/user/${tid}/reset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
@@ -833,7 +883,8 @@ const dailyWeightInput = document.getElementById("daily-weight-input");
 const dailyWeightSave = document.getElementById("daily-weight-save");
 if (dailyWeightSave && dailyWeightInput) {
   dailyWeightSave.addEventListener("click", async () => {
-    if (!telegramId) return;
+    const tid = currentTelegramId();
+    if (!tid) return;
     const val = dailyWeightInput.value.trim();
     if (!val) {
       showError("Introdu greutatea în kg.");
@@ -847,7 +898,7 @@ if (dailyWeightSave && dailyWeightInput) {
     try {
       const fd = new FormData();
       fd.append("weight", String(num));
-      await fetchJsonForm(`/user/${telegramId}/log_weight`, fd);
+      await fetchJsonForm(`/user/${tid}/log_weight`, fd);
       dailyWeightInput.value = "";
       if (dailyWeightOverlay) dailyWeightOverlay.style.display = "none";
       await loadDashboard();
@@ -862,11 +913,12 @@ if (dailyWeightSave && dailyWeightInput) {
 // ── Score & Streak ────────────────────────────────────────────────────────────
 
 async function loadScore() {
-  if (!telegramId) return;
+  const tid = currentTelegramId();
+  if (!tid) return;
   const scoreEl = document.getElementById("score-value");
   const streakEl = document.getElementById("streak-value");
   try {
-    const data = await fetchJson(`/score/${telegramId}`);
+    const data = await fetchJson(`/score/${tid}`);
     const score = data.score ?? 0;
     const streak = data.streak ?? 0;
     let scoreClass = "score-low";
@@ -890,10 +942,11 @@ async function loadScore() {
 // ── Workouts ──────────────────────────────────────────────────────────────────
 
 async function loadWeekWorkouts() {
-  if (!telegramId) return;
+  const tid = currentTelegramId();
+  if (!tid) return;
   const summaryEl = document.getElementById("workout-week-summary");
   try {
-    const data = await fetchJson(`/workout/${telegramId}/week`);
+    const data = await fetchJson(`/workout/${tid}/week`);
     if (!summaryEl) return;
     if (data.count === 0) {
       summaryEl.innerHTML = `<span class="workout-none">Niciun antrenament săptămâna asta</span>`;
@@ -916,7 +969,8 @@ async function loadWeekWorkouts() {
 const saveWorkoutBtn = document.getElementById("save-workout");
 if (saveWorkoutBtn) {
   saveWorkoutBtn.addEventListener("click", async () => {
-    if (!telegramId) { showError("Nu pot identifica utilizatorul."); return; }
+    const tid = currentTelegramId();
+    if (!tid) { showError("Nu pot identifica utilizatorul."); return; }
     const nameEl = document.getElementById("workout-name");
     const calEl  = document.getElementById("workout-calories");
     const durEl  = document.getElementById("workout-duration");
@@ -927,7 +981,7 @@ if (saveWorkoutBtn) {
     fd.append("calories_burned", calEl.value);
     if (durEl.value) fd.append("duration_min", durEl.value);
     try {
-      await fetchJsonForm(`/workout/${telegramId}/add`, fd);
+      await fetchJsonForm(`/workout/${tid}/add`, fd);
       nameEl.value = ""; calEl.value = ""; durEl.value = "";
       await Promise.all([loadWeekWorkouts(), loadScore()]);
       showError("Antrenament salvat! 💪");
@@ -951,10 +1005,10 @@ async function loadLeaderboard() {
       container.innerHTML = `<p class="muted">Niciun utilizator înregistrat încă.</p>`;
       return;
     }
-    const medalMap = { 1: "🥇", 2: "🥈", 3: "🥉" };
+    const myId = currentTelegramId();
     const rows = list.map((entry) => {
       const medal = medalMap[entry.rank] || `#${entry.rank}`;
-      const isMe  = Number(entry.telegram_id) === Number(telegramId);
+      const isMe  = Number(entry.telegram_id) === Number(myId);
       const scoreCls = entry.score >= 85 ? "score-top"
                      : entry.score >= 70 ? "score-high"
                      : entry.score >= 50 ? "score-mid" : "score-low";
@@ -1044,7 +1098,8 @@ function _buildDayDetail(d) {
 }
 
 async function loadHistory() {
-  if (!telegramId) return;
+  const tid = currentTelegramId();
+  if (!tid) return;
   const container = document.getElementById("history-days");
   if (!container) return;
   container.innerHTML = `<p class="muted">Se încarcă…</p>`;
@@ -1058,7 +1113,7 @@ async function loadHistory() {
 
   // Fetch all 7 days in parallel
   const results = await Promise.all(
-    dates.map(d => fetchJson(`/day/${telegramId}/${d}`).catch(() => null))
+    dates.map(d => fetchJson(`/day/${tid}/${d}`).catch(() => null))
   );
 
   container.innerHTML = "";

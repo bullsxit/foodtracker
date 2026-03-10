@@ -32,6 +32,8 @@ class Database:
             engine_kwargs["pool_size"] = 1
             engine_kwargs["max_overflow"] = 0
             engine_kwargs["pool_pre_ping"] = True
+            engine_kwargs["pool_timeout"] = 60
+            engine_kwargs["pool_recycle"] = 300
         self._engine: AsyncEngine = create_async_engine(
             self._database_url,
             **engine_kwargs,

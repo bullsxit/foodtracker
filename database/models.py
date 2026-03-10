@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 
 from sqlalchemy import (
+    BigInteger,
     Date,
     DateTime,
     Float,
@@ -22,7 +23,7 @@ class User(Base):
     __table_args__ = (UniqueConstraint("telegram_id", name="uq_users_telegram_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     age: Mapped[int] = mapped_column(Integer, nullable=False)
     height_cm: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -41,7 +42,7 @@ class WeightHistory(Base):
     __tablename__ = "weight_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     weight: Mapped[float] = mapped_column(Float, nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
 
@@ -50,7 +51,7 @@ class Food(Base):
     __tablename__ = "foods"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     food_name: Mapped[str] = mapped_column(String(255), nullable=False)
     calories: Mapped[float] = mapped_column(Float, nullable=False)
     protein: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -67,7 +68,7 @@ class DailyCalories(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     total_calories: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
@@ -76,7 +77,7 @@ class WaterIntake(Base):
     __tablename__ = "water_intake"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     amount_ml: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     created_at: Mapped[datetime] = mapped_column(
@@ -88,7 +89,7 @@ class Workout(Base):
     __tablename__ = "workouts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    telegram_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     calories_burned: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)

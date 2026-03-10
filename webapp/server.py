@@ -105,6 +105,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def no_cache_webapp(request: Request, call_next):
+    """Prevent Mini App static files from being cached so each user gets fresh JS."""
+    response = await call_next(request)
+    if request.url.path.rstrip("/").startswith("/webapp"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 # Serve static front-end files for the mini app
 static_dir = Path(__file__).parent / "static"
 app.mount(
@@ -132,8 +143,15 @@ async def telegram_webhook(token: str, request: Request) -> dict[str, str]:
 
 
 async def get_session() -> AsyncSession:
-    async for session in db.session():
-        yield session
+    try:
+        async for session in db.session():
+            yield session
+    except Exception as e:
+        _logger.exception("get_session failed: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Serviciu ocupat. Încearcă din nou în câteva secunde.",
+        )
 
 
 def _serialize_user(user: User) -> dict[str, Any]:
@@ -244,35 +262,62 @@ async def get_dashboard(
 
 @app.post("/api/register")
 async def register(
-    telegram_id: int = Form(...),
-    name: str = Form(...),
-    age: int = Form(...),
-    height_cm: int = Form(...),
-    weight_kg: float = Form(...),
-    gender: str = Form(...),
-    goal: str = Form(...),
-    activity_level: str = Form(...),
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Create a new user profile (onboarding from mini app)."""
-    goal = goal.strip() if goal else ""
-    activity_level = activity_level.strip() if activity_level else ""
-    name = name.strip() if name else ""
+    try:
+        body = await request.form()
+    except Exception as e:
+        _logger.warning("Register form read failed: %s", e)
+        raise HTTPException(status_code=400, detail="Date invalide. Încearcă din nou.")
 
+    def _get(name: str, default: str = "") -> str:
+        v = body.get(name)
+        if v is None:
+            return default
+        if isinstance(v, str):
+            return v
+        if isinstance(v, (list, tuple)) and v:
+            return str(v[0]) if v[0] is not None else default
+        return str(v) if v is not None else default
+
+    try:
+        telegram_id = int(_get("telegram_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="ID invalid. Deschide aplicația din Menu-ul botului.")
+    name = (_get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Numele este obligatoriu.")
+    try:
+        age = int(_get("age") or "0")
+        height_cm = int(_get("height_cm") or "0")
+        w_str = (_get("weight_kg") or "0").replace(",", ".")
+        weight_kg = float(w_str)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Vârstă, înălțime sau greutate invalide.")
+    if age < 1 or age > 120:
+        raise HTTPException(status_code=400, detail="Vârsta trebuie să fie între 1 și 120.")
+    if height_cm < 100 or height_cm > 250:
+        raise HTTPException(status_code=400, detail="Înălțimea trebuie să fie între 100 și 250 cm.")
+    if weight_kg < 1 or weight_kg > 400:
+        raise HTTPException(status_code=400, detail="Greutatea trebuie să fie între 1 și 400 kg.")
+
+    gender = (_get("gender") or "").strip().lower()
     if gender not in ("male", "female"):
-        raise HTTPException(status_code=400, detail="Invalid gender")
+        raise HTTPException(status_code=400, detail="Alege sexul biologic.")
+    goal = (_get("goal") or "").strip()
     if goal not in ("Slăbire", "Menținere", "Creștere"):
-        raise HTTPException(status_code=400, detail="Invalid goal")
+        raise HTTPException(status_code=400, detail="Alege obiectivul.")
+    activity_level = (_get("activity_level") or "").strip()
     if activity_level not in ("Sedentar", "Ușor activ", "Moderat activ", "Foarte activ"):
-        raise HTTPException(status_code=400, detail="Invalid activity level")
+        raise HTTPException(status_code=400, detail="Alege nivelul de activitate.")
 
     try:
         stmt: Select = select(User).where(User.telegram_id == telegram_id)
         result = await session.execute(stmt)
         if result.scalars().first():
-            raise HTTPException(status_code=400, detail="User already exists")
+            raise HTTPException(status_code=400, detail="Contul există deja. Deschide aplicația din Menu – ar trebui să vezi panoul.")
 
         calc = CalorieCalculationService()
         inp = CalorieCalculationInput(
@@ -305,7 +350,7 @@ async def register(
     except IntegrityError as e:
         await session.rollback()
         _logger.warning("Register IntegrityError telegram_id=%s: %s", telegram_id, e)
-        raise HTTPException(status_code=400, detail="User already exists")
+        raise HTTPException(status_code=400, detail="Contul există deja. Deschide aplicația din Menu.")
     except Exception as e:
         await session.rollback()
         _logger.exception("Register failed telegram_id=%s: %s", telegram_id, e)

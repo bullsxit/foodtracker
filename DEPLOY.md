@@ -103,6 +103,7 @@ To reduce cold starts, you can use a free “cron” service (e.g. cron-job.org)
 
 - **Second user / new account gets error when registering:**  
   - The app is configured to use one PostgreSQL connection at a time (Neon-friendly). If you still see errors, check Render **Logs** for the real exception; fix any DB or validation issue reported there.
+  - **"value out of int32 range" / telegram_id:** Some Telegram user IDs are larger than 2^31−1. The app uses BIGINT for `telegram_id`. If the DB was created before this change, run the migration once in Neon **SQL Editor**: execute the statements in `scripts/migrate_telegram_id_bigint.sql` (ALTER each table’s `telegram_id` to BIGINT).
 
 - **Leaderboard empty:**  
   - At least one user must have completed onboarding and have score/streak data. Use the app, add meals/water/workouts, then open the Leaderboard tab.
