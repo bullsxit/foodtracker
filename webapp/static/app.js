@@ -183,36 +183,27 @@ async function loadDashboard() {
   const dashboardContent = document.getElementById("dashboard-content");
   const onboardingHint = document.getElementById("onboarding-no-id-hint");
 
-  if (!telegramId) {
-    // In DEMO_MODE the server allows viewing with tid=0; resolve it so anyone can open the app
-    try {
-      const r = await fetch(`${API_BASE}/demo-mode`).then((res) => res.json()).catch(() => ({}));
-      if (r.demo_mode) {
-        telegramId = 0;
-        window.__demoMode = true;
-        _showDemoBanner();
-      } else {
-        if (onboardingHint) onboardingHint.style.display = "block";
-        if (onboardingCard) onboardingCard.style.display = "block";
-        if (dashboardContent) dashboardContent.style.display = "none";
-        const greetingBanner = document.getElementById("greeting-banner");
-        if (greetingBanner) greetingBanner.style.display = "none";
-        if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
-          _dashboardRetryCount += 1;
-          setTimeout(loadDashboard, 400 * _dashboardRetryCount);
-        }
-        return;
-      }
-    } catch (e) {
-      if (onboardingHint) onboardingHint.style.display = "block";
-      if (onboardingCard) onboardingCard.style.display = "block";
-      if (dashboardContent) dashboardContent.style.display = "none";
-      if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
-        _dashboardRetryCount += 1;
-        setTimeout(loadDashboard, 400 * _dashboardRetryCount);
-      }
-      return;
+  // Always check server demo mode (browser and Telegram): show preview banner and disable forms when on
+  try {
+    const r = await fetch(`${API_BASE}/demo-mode`).then((res) => res.json()).catch(() => ({}));
+    if (r.demo_mode) {
+      window.__demoMode = true;
+      _showDemoBanner();
+      telegramId = r.demo_telegram_id ?? 0; // use demo user for all requests when in demo mode
     }
+  } catch (_) {}
+
+  if (!telegramId) {
+    if (onboardingHint) onboardingHint.style.display = "block";
+    if (onboardingCard) onboardingCard.style.display = "block";
+    if (dashboardContent) dashboardContent.style.display = "none";
+    const greetingBanner = document.getElementById("greeting-banner");
+    if (greetingBanner) greetingBanner.style.display = "none";
+    if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
+      _dashboardRetryCount += 1;
+      setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+    }
+    return;
   }
 
   if (onboardingHint) onboardingHint.style.display = "none";
