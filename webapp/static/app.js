@@ -177,6 +177,19 @@ if (toggleCaloriesChartBtn && caloriesChartContainer) {
   });
 }
 
+function _hideLoading() {
+  const el = document.getElementById("app-loading");
+  if (el) el.style.display = "none";
+}
+
+function _showLoading(msg) {
+  const el = document.getElementById("app-loading");
+  if (el) {
+    el.style.display = "block";
+    el.textContent = msg || "Se încarcă…";
+  }
+}
+
 async function loadDashboard() {
   telegramId = getTelegramId();
   const onboardingCard = document.getElementById("onboarding-card");
@@ -194,6 +207,7 @@ async function loadDashboard() {
   } catch (_) {}
 
   if (!telegramId) {
+    _hideLoading();
     if (onboardingHint) onboardingHint.style.display = "block";
     if (onboardingCard) onboardingCard.style.display = "block";
     if (dashboardContent) dashboardContent.style.display = "none";
@@ -216,6 +230,7 @@ async function loadDashboard() {
 
     if (response.status === 404) {
       cachedUser = null;
+      _hideLoading();
       const greetingBanner = document.getElementById("greeting-banner");
       if (greetingBanner) greetingBanner.style.display = "none";
       if (onboardingHint) onboardingHint.style.display = "none";
@@ -237,6 +252,7 @@ async function loadDashboard() {
 
     if (onboardingCard) onboardingCard.style.display = "none";
     if (dashboardContent) dashboardContent.style.display = "block";
+    _hideLoading();
     const greetingBanner = document.getElementById("greeting-banner");
     if (greetingBanner) greetingBanner.style.display = "block";
 
@@ -308,8 +324,10 @@ async function loadDashboard() {
     console.error(e);
     cachedUser = null;
     if (onboardingHint) onboardingHint.style.display = "none";
-    if (onboardingCard) onboardingCard.style.display = "block";
+    if (onboardingCard) onboardingCard.style.display = "none";
     if (dashboardContent) dashboardContent.style.display = "none";
+    _showLoading("Serverul pornește sau nu e disponibil. Încearcă din nou în câteva secunde.");
+    setTimeout(loadDashboard, 3000);
     const greetingBanner = document.getElementById("greeting-banner");
     if (greetingBanner) greetingBanner.style.display = "none";
     const errEl = document.getElementById("onboarding-error");

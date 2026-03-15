@@ -4,12 +4,13 @@
     <meta charset="UTF-8" />
     <title>FoodTracker Mini App</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="/webapp/styles.css" />
     <!-- Telegram Mini App SDK – always include, harmless in browser preview -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <div id="app">
+      <div id="app-loading" style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:1rem;">Se încarcă…</div>
       <div id="greeting-banner" style="display:none;">
         <div id="profile-summary"></div>
       </div>
@@ -297,7 +298,7 @@
       </div>
     </div>
 
-    <script src="app.js"></script>
+    <script src="/webapp/app.js"></script>
   </body>
 </html>
 
