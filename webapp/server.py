@@ -76,20 +76,129 @@ def _reject_demo_writes(telegram_id: int) -> None:
 _bot_app: Any = None  # type: Any avoids IDE needing telegram SDK installed
 
 
+def _seed_demo_data_7_days(session: AsyncSession, uid: int) -> None:
+    """Seed 7 days of generic data for the demo user so all app tabs (dashboard, history, progress) show a full preview."""
+    today = date.today()
+    # Generic meals per day: (food_name, calories, protein, carbs, fat, meal_type)
+    meals_by_day = [
+        (today, [
+            ("Omeletă cu legume", 320.0, 18.0, 12.0, 22.0, "Micul dejun"),
+            ("Salată de pui", 450.0, 35.0, 28.0, 20.0, "Prânz"),
+            ("Iaurt cu fructe", 180.0, 8.0, 28.0, 4.0, "Desert"),
+            ("Paste cu sos roșu", 520.0, 16.0, 72.0, 18.0, "Cină"),
+        ]),
+        (today - timedelta(days=1), [
+            ("Fulgi de ovăz", 280.0, 10.0, 48.0, 6.0, "Micul dejun"),
+            ("Supa de legume", 220.0, 8.0, 32.0, 6.0, "Prânz"),
+            ("Piept de pui la grătar", 380.0, 42.0, 2.0, 22.0, "Cină"),
+            ("Măr", 95.0, 0.5, 25.0, 0.3, "Gustare"),
+        ]),
+        (today - timedelta(days=2), [
+            ("Sandwich cu brânză", 420.0, 18.0, 38.0, 24.0, "Micul dejun"),
+            ("Mămăligă cu brânză", 550.0, 22.0, 62.0, 22.0, "Prânz"),
+            ("Salată Cezar", 380.0, 24.0, 18.0, 24.0, "Cină"),
+        ]),
+        (today - timedelta(days=3), [
+            ("Clătite cu dulceață", 340.0, 8.0, 58.0, 10.0, "Micul dejun"),
+            ("Ciorbă de fasole", 290.0, 14.0, 42.0, 8.0, "Prânz"),
+            ("Orez cu legume", 480.0, 10.0, 92.0, 8.0, "Cină"),
+            ("Banane", 105.0, 1.3, 27.0, 0.4, "Gustare"),
+        ]),
+        (today - timedelta(days=4), [
+            ("Ouă ochiuri", 280.0, 14.0, 2.0, 24.0, "Micul dejun"),
+            ("Pizza margherita (2 felii)", 520.0, 22.0, 58.0, 22.0, "Prânz"),
+            ("Smoothie verde", 180.0, 4.0, 32.0, 4.0, "Gustare"),
+            ("Pui la cuptor cu cartofi", 620.0, 44.0, 52.0, 26.0, "Cină"),
+        ]),
+        (today - timedelta(days=5), [
+            ("Cereale cu lapte", 320.0, 12.0, 54.0, 8.0, "Micul dejun"),
+            ("Tocană de vită", 480.0, 38.0, 22.0, 26.0, "Prânz"),
+            ("Salată de fructe", 140.0, 2.0, 34.0, 0.5, "Desert"),
+            ("Omletă", 350.0, 24.0, 4.0, 26.0, "Cină"),
+        ]),
+        (today - timedelta(days=6), [
+            ("Pâine cu unt și miere", 280.0, 6.0, 42.0, 10.0, "Micul dejun"),
+            ("Ghiveci de legume", 320.0, 10.0, 48.0, 12.0, "Prânz"),
+            ("Paste carbonara", 620.0, 24.0, 62.0, 30.0, "Cină"),
+        ]),
+    ]
+    for d, meals in meals_by_day:
+        total_cal = sum(m[1] for m in meals)
+        session.add(DailyCalories(user_id=uid, date=d, total_calories=total_cal))
+        for name, cal, prot, carb, fat, meal_type in meals:
+            session.add(
+                Food(
+                    user_id=uid,
+                    food_name=name,
+                    calories=cal,
+                    protein=prot,
+                    carbs=carb,
+                    fat=fat,
+                    date=d,
+                    meal_type=meal_type,
+                )
+            )
+    # Weight: one entry every 1–2 days over 7 days (slight downward trend)
+    weights = [
+        (74.5, today - timedelta(days=6)),
+        (74.2, today - timedelta(days=5)),
+        (73.8, today - timedelta(days=4)),
+        (73.5, today - timedelta(days=3)),
+        (73.2, today - timedelta(days=2)),
+        (72.8, today - timedelta(days=1)),
+        (72.5, today),
+    ]
+    for w, d in weights:
+        session.add(WeightHistory(user_id=uid, weight=w, date=d))
+    # Water: generic 1500–2200 ml per day
+    water_ml = [2000.0, 1800.0, 2200.0, 1600.0, 1900.0, 2100.0, 1750.0]
+    for i in range(7):
+        session.add(
+            WaterIntake(user_id=uid, date=today - timedelta(days=i), amount_ml=water_ml[i])
+        )
+    # Workouts: a few over the week
+    workouts = [
+        ("Alergare", 280.0, 30, today - timedelta(days=1)),
+        ("Fitness acasă", 180.0, 25, today - timedelta(days=3)),
+        ("Mers rapid", 150.0, 25, today - timedelta(days=5)),
+        ("Cycling", 320.0, 35, today - timedelta(days=6)),
+    ]
+    for name, burned, dur, d in workouts:
+        session.add(
+            Workout(user_id=uid, name=name, calories_burned=burned, duration_min=dur, date=d)
+        )
+
+
 async def ensure_demo_user() -> None:
-    """Create demo user and seed data so preview mode (?tid=0) shows a full app experience."""
+    """Create or refresh demo user 'Utilizator X' with 7 days of generic data so preview shows full app (dashboard, history, progress)."""
     async for session in db.session():
         try:
             demo_id = await get_user_id(session, DEMO_TELEGRAM_ID)
+            today = date.today()
+
             if demo_id is not None:
-                return
+                user = await get_user_by_id(session, demo_id)
+                if user:
+                    user.name = "Utilizator X"
+                    user.current_weight = 72.5
+                    user.target_calories = 2200.0
+                await session.execute(delete(WeightHistory).where(WeightHistory.user_id == demo_id))
+                await session.execute(delete(Food).where(Food.user_id == demo_id))
+                await session.execute(delete(DailyCalories).where(DailyCalories.user_id == demo_id))
+                await session.execute(delete(WaterIntake).where(WaterIntake.user_id == demo_id))
+                await session.execute(delete(Workout).where(Workout.user_id == demo_id))
+                _seed_demo_data_7_days(session, demo_id)
+                await session.commit()
+                _logger.info("Demo user 'Utilizator X' refreshed with 7 days of data")
+                break
+
             user = User(
                 telegram_id=str(DEMO_TELEGRAM_ID),
-                name="Demo User",
+                name="Utilizator X",
                 age=30,
                 height_cm=175,
-                current_weight=72.0,
-                start_weight=74.0,
+                current_weight=72.5,
+                start_weight=74.5,
                 goal="Menținere",
                 activity_level="Moderat activ",
                 target_calories=2200.0,
@@ -98,45 +207,9 @@ async def ensure_demo_user() -> None:
             session.add(user)
             await session.flush()
             uid = user.id
-            today = date.today()
-            yesterday = today - timedelta(days=1)
-            for d, cal in [(today, 1850.0), (yesterday, 2100.0)]:
-                session.add(
-                    DailyCalories(user_id=uid, date=d, total_calories=cal)
-                )
-            for name, cal, d in [
-                ("Omeletă cu legume", 320.0, today),
-                ("Salată de pui", 450.0, today),
-                ("Iaurt cu fructe", 180.0, today),
-                ("Paste carbonara", 620.0, yesterday),
-                ("Smoothie", 280.0, yesterday),
-            ]:
-                session.add(
-                    Food(
-                        user_id=uid,
-                        food_name=name,
-                        calories=cal,
-                        date=d,
-                    )
-                )
-            for w, d in [(74.0, yesterday - timedelta(days=2)), (73.2, yesterday), (72.0, today)]:
-                session.add(
-                    WeightHistory(user_id=uid, weight=w, date=d)
-                )
-            session.add(
-                WaterIntake(user_id=uid, date=today, amount_ml=1500.0)
-            )
-            session.add(
-                Workout(
-                    user_id=uid,
-                    name="Alergare",
-                    calories_burned=280.0,
-                    duration_min=30,
-                    date=yesterday,
-                )
-            )
+            _seed_demo_data_7_days(session, uid)
             await session.commit()
-            _logger.info("Demo user and seed data created for preview mode")
+            _logger.info("Demo user 'Utilizator X' and 7-day seed data created for preview mode")
         except Exception as e:
             await session.rollback()
             _logger.warning("ensure_demo_user skipped or failed: %s", e)
