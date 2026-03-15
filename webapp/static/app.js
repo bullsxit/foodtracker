@@ -207,17 +207,40 @@ async function loadDashboard() {
   } catch (_) {}
 
   if (!telegramId) {
-    _hideLoading();
-    if (onboardingHint) onboardingHint.style.display = "block";
-    if (onboardingCard) onboardingCard.style.display = "block";
-    if (dashboardContent) dashboardContent.style.display = "none";
-    const greetingBanner = document.getElementById("greeting-banner");
-    if (greetingBanner) greetingBanner.style.display = "none";
-    if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
-      _dashboardRetryCount += 1;
-      setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+    // Try demo dashboard (tid=0) so preview always shows dashboard, not the onboarding form
+    try {
+      const r = await fetch(`${API_BASE}/dashboard/0`);
+      if (r.ok) {
+        window.__demoMode = true;
+        telegramId = 0;
+        _showDemoBanner();
+        // fall through to fetch dashboard/0 again and render
+      } else {
+        _hideLoading();
+        if (onboardingHint) onboardingHint.style.display = "block";
+        if (onboardingCard) onboardingCard.style.display = "block";
+        if (dashboardContent) dashboardContent.style.display = "none";
+        const greetingBanner = document.getElementById("greeting-banner");
+        if (greetingBanner) greetingBanner.style.display = "none";
+        if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
+          _dashboardRetryCount += 1;
+          setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+        }
+        return;
+      }
+    } catch (_) {
+      _hideLoading();
+      if (onboardingHint) onboardingHint.style.display = "block";
+      if (onboardingCard) onboardingCard.style.display = "block";
+      if (dashboardContent) dashboardContent.style.display = "none";
+      const greetingBanner = document.getElementById("greeting-banner");
+      if (greetingBanner) greetingBanner.style.display = "none";
+      if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
+        _dashboardRetryCount += 1;
+        setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+      }
+      return;
     }
-    return;
   }
 
   if (onboardingHint) onboardingHint.style.display = "none";
@@ -229,6 +252,79 @@ async function loadDashboard() {
     });
 
     if (response.status === 404) {
+      // When server is in DEMO_MODE it may still return 404 for unknown users; try demo dashboard (tid=0)
+      const fallback = await fetch(`${API_BASE}/dashboard/0`).catch(() => null);
+      if (fallback && fallback.ok) {
+        window.__demoMode = true;
+        telegramId = 0;
+        _showDemoBanner();
+        const data = await fallback.json();
+        cachedUser = data.user;
+        if (onboardingHint) onboardingHint.style.display = "none";
+        if (onboardingCard) onboardingCard.style.display = "none";
+        if (dashboardContent) dashboardContent.style.display = "block";
+        _hideLoading();
+        const greetingBanner = document.getElementById("greeting-banner");
+        if (greetingBanner) greetingBanner.style.display = "block";
+        const profileEl = document.getElementById("profile-summary");
+        const greetingMap = {
+          "Slăbire":   { text: "Hai să slăbim! 🔥",          sub: "Ești pe drumul cel bun." },
+          "Menținere": { text: "Hai să ne menținem! ⚖️",      sub: "Consistența e cheia succesului." },
+          "Creștere":  { text: "Hai să ne dezvoltăm! 💪",     sub: "Fiecare zi contează." },
+        };
+        const user = data.user;
+        const g = greetingMap[user.goal] || { text: "Bun venit! 👋", sub: "" };
+        if (profileEl) profileEl.innerHTML = `
+          <div class="greeting-hello">Salut, ${user.name}!</div>
+          <div class="greeting-goal">${g.text}</div>
+          <div class="greeting-sub">${g.sub}</div>
+          <div class="greeting-meta">
+            <span>${user.current_weight.toFixed(1)} kg</span>
+            <span>·</span>
+            <span>${Math.round(user.target_calories || 2000)} kcal / zi</span>
+          </div>
+        `;
+        const calEl = document.getElementById("calories-today");
+        const consumed = data.calories_today || 0;
+        const target = Math.max(1, user.target_calories || 2000);
+        const remaining = Math.max(0, target - consumed);
+        const pct = Math.min(100, (consumed / target) * 100);
+        const consumedProtein = data.consumed_protein ?? 0;
+        const consumedCarbs = data.consumed_carbs ?? 0;
+        const consumedFat = data.consumed_fat ?? 0;
+        const targetP = data.target_protein_g ?? (target * 0.3 / 4);
+        const targetC = data.target_carbs_g ?? (target * 0.4 / 4);
+        const targetF = data.target_fat_g ?? (target * 0.3 / 9);
+        const remP = Math.max(0, targetP - consumedProtein);
+        const remC = Math.max(0, targetC - consumedCarbs);
+        const remF = Math.max(0, targetF - consumedFat);
+        const pctP = Math.min(100, (consumedProtein / (targetP || 1)) * 100);
+        const pctC = Math.min(100, (consumedCarbs / (targetC || 1)) * 100);
+        const pctF = Math.min(100, (consumedFat / (targetF || 1)) * 100);
+        if (calEl) calEl.innerHTML = `
+          <div class="calories-line">${consumed.toFixed(0)} / ${target.toFixed(0)} kcal</div>
+          <div class="progress-track"><div class="progress-fill" style="width: ${pct}%;"></div></div>
+          <div class="calories-remaining">${remaining.toFixed(0)} kcal rămase azi</div>
+          <div class="macro-row"><span class="label">Proteine</span><span class="value">${consumedProtein.toFixed(0)} / ${targetP.toFixed(0)} g</span><span class="remaining">${remP.toFixed(0)} g rămase</span></div>
+          <div class="progress-track"><div class="progress-fill" style="width: ${pctP}%;"></div></div>
+          <div class="macro-row"><span class="label">Carbohidrați</span><span class="value">${consumedCarbs.toFixed(0)} / ${targetC.toFixed(0)} g</span><span class="remaining">${remC.toFixed(0)} g rămase</span></div>
+          <div class="progress-track"><div class="progress-fill" style="width: ${pctC}%;"></div></div>
+          <div class="macro-row"><span class="label">Grăsimi</span><span class="value">${consumedFat.toFixed(0)} / ${targetF.toFixed(0)} g</span><span class="remaining">${remF.toFixed(0)} g rămase</span></div>
+          <div class="progress-track"><div class="progress-fill" style="width: ${pctF}%;"></div></div>
+        `;
+        const weightOverlay = document.getElementById("daily-weight-overlay");
+        if (weightOverlay) weightOverlay.style.display = data.weight_logged_today === false ? "flex" : "none";
+        const waterEl = document.getElementById("water-today");
+        if (waterEl) waterEl.innerHTML = `
+          <div class="metric">
+            <div class="metric-label">Apă băută azi</div>
+            <div class="metric-value accent">${(data.water_today_ml || 0).toFixed(0)} ml</div>
+          </div>
+          <div class="muted">Țintă recomandată: ~2000 ml / zi</div>
+        `;
+        syncSettingsFromUser();
+        return;
+      }
       cachedUser = null;
       _hideLoading();
       const greetingBanner = document.getElementById("greeting-banner");
