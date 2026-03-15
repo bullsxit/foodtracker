@@ -368,6 +368,9 @@ async def get_dashboard(
     telegram_id = _effective_telegram_id_for_read(telegram_id)
     try:
         user_id = await get_user_id(session, telegram_id)
+        if user_id is None and telegram_id == DEMO_TELEGRAM_ID:
+            await ensure_demo_user()
+            user_id = await get_user_id(session, telegram_id)
         if user_id is None:
             raise HTTPException(status_code=404, detail="User not found")
         user = await get_user_by_id(session, user_id)
