@@ -2,6 +2,7 @@
 # 1. Connect this repo to Render, create a Web Service from it.
 # 2. Add a PostgreSQL database (e.g. Neon free tier) and set DATABASE_URL in Render env.
 # 3. Set TELEGRAM_BOT_TOKEN and BOT_WEBHOOK_URL (your Render service URL, no trailing slash).
+# 4. DEMO_MODE=1: anyone can open the app without Telegram and browse all pages (read-only, no data stored).
 services:
   - type: web
     name: foodtracker
@@ -17,6 +18,8 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: DEMO_MODE
+        value: "1"
       - key: FOOD_AI_PROVIDER
         value: mock
       - key: OPENAI_API_KEY

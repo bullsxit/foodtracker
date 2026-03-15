@@ -9,10 +9,13 @@ if (window.Telegram?.WebApp) {
 
 /**
  * Returns the current user's Telegram ID.
- * ① Production: read from Telegram WebApp SDK (automatic, no URL param needed).
- * ② Local dev: fall back to ?tid= query parameter.
+ * ① Demo mode: when server is in DEMO_MODE and we resolved it, use 0 so all pages load.
+ * ② Production: read from Telegram WebApp SDK (automatic, no URL param needed).
+ * ③ Local dev: fall back to ?tid= query parameter.
  */
 function getTelegramId() {
+  if (window.__demoMode) return 0;
+
   const sdkUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
   if (sdkUser?.id) return sdkUser.id;
 
@@ -20,6 +23,11 @@ function getTelegramId() {
   const url = new URL(window.location.href);
   const tid = url.searchParams.get("tid");
   return tid ? parseInt(tid, 10) : null;
+}
+
+/** True when app is in preview-only demo mode (no login, no data stored). */
+function isDemoMode() {
+  return !!window.__demoMode;
 }
 
 let telegramId = getTelegramId();
@@ -36,6 +44,23 @@ function currentTelegramId() {
 
 function showError(message) {
   alert(message);
+}
+
+function _showDemoBanner() {
+  if (document.getElementById("demo-mode-banner")) return;
+  const app = document.getElementById("app");
+  if (!app) return;
+  const banner = document.createElement("div");
+  banner.id = "demo-mode-banner";
+  banner.setAttribute("role", "status");
+  banner.style.cssText = "background: linear-gradient(90deg, #0ea5e9 0%, #06b6d4 100%); color: #fff; padding: 10px 14px; text-align: center; font-size: 13px; font-weight: 500;";
+  banner.textContent = "👁 Preview – datele nu sunt salvate. Toate paginile sunt vizibile doar pentru demonstrație.";
+  app.insertBefore(banner, app.firstChild);
+}
+// If URL has ?tid=0 or ?tid=demo, treat as demo preview (no server DEMO_MODE required)
+if (telegramId === 0) {
+  window.__demoMode = true;
+  _showDemoBanner();
 }
 
 async function fetchJson(path, options = {}) {
@@ -159,16 +184,35 @@ async function loadDashboard() {
   const onboardingHint = document.getElementById("onboarding-no-id-hint");
 
   if (!telegramId) {
-    if (onboardingHint) onboardingHint.style.display = "block";
-    if (onboardingCard) onboardingCard.style.display = "block";
-    if (dashboardContent) dashboardContent.style.display = "none";
-    const greetingBanner = document.getElementById("greeting-banner");
-    if (greetingBanner) greetingBanner.style.display = "none";
-    if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
-      _dashboardRetryCount += 1;
-      setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+    // In DEMO_MODE the server allows viewing with tid=0; resolve it so anyone can open the app
+    try {
+      const r = await fetch(`${API_BASE}/demo-mode`).then((res) => res.json()).catch(() => ({}));
+      if (r.demo_mode) {
+        telegramId = 0;
+        window.__demoMode = true;
+        _showDemoBanner();
+      } else {
+        if (onboardingHint) onboardingHint.style.display = "block";
+        if (onboardingCard) onboardingCard.style.display = "block";
+        if (dashboardContent) dashboardContent.style.display = "none";
+        const greetingBanner = document.getElementById("greeting-banner");
+        if (greetingBanner) greetingBanner.style.display = "none";
+        if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
+          _dashboardRetryCount += 1;
+          setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+        }
+        return;
+      }
+    } catch (e) {
+      if (onboardingHint) onboardingHint.style.display = "block";
+      if (onboardingCard) onboardingCard.style.display = "block";
+      if (dashboardContent) dashboardContent.style.display = "none";
+      if (_dashboardRetryCount < MAX_DASHBOARD_RETRIES) {
+        _dashboardRetryCount += 1;
+        setTimeout(loadDashboard, 400 * _dashboardRetryCount);
+      }
+      return;
     }
-    return;
   }
 
   if (onboardingHint) onboardingHint.style.display = "none";
@@ -290,6 +334,7 @@ async function loadDashboard() {
 const onboardingSubmit = document.getElementById("onboarding-submit");
 if (onboardingSubmit) {
   onboardingSubmit.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Registration is disabled."); return; }
     const currentId = getTelegramId();
     if (!currentId) {
       const errEl = document.getElementById("onboarding-error");
@@ -403,6 +448,7 @@ function syncSettingsFromUser() {
 // Water buttons
 document.querySelectorAll("[data-add-water]").forEach((btn) => {
   btn.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) {
       showError("Nu pot identifica utilizatorul.");
@@ -628,6 +674,7 @@ if (saveManualBtn) {
     const carbsEl = document.getElementById("manual-meal-carbs");
     const fatEl = document.getElementById("manual-meal-fat");
 
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     if (!nameEl.value.trim()) {
       showError("Te rog introdu numele mâncării.");
       return;
@@ -673,6 +720,7 @@ if (saveManualBtn) {
 const photoAnalyzeBtn = document.getElementById("photo-analyze");
 if (photoAnalyzeBtn) {
   photoAnalyzeBtn.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) {
       showError("Nu pot identifica utilizatorul.");
@@ -723,6 +771,7 @@ if (photoAnalyzeBtn) {
 const saveWeightBtn = document.getElementById("save-weight");
 if (saveWeightBtn) {
   saveWeightBtn.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) {
       showError("Nu pot identifica utilizatorul.");
@@ -756,6 +805,7 @@ if (saveWeightBtn) {
 const savePersonalBtn = document.getElementById("save-personal");
 if (savePersonalBtn) {
   savePersonalBtn.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) {
       showError("Nu pot identifica utilizatorul.");
@@ -790,6 +840,7 @@ if (savePersonalBtn) {
 const saveGoalActivityBtn = document.getElementById("save-goal-activity");
 if (saveGoalActivityBtn) {
   saveGoalActivityBtn.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) {
       showError("Nu pot identifica utilizatorul.");
@@ -837,6 +888,7 @@ const confirmResetYes = document.getElementById("confirm-reset-yes");
 
 if (resetProfileBtn) {
   resetProfileBtn.addEventListener("click", () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) {
       showError("Nu pot identifica utilizatorul.");
@@ -854,6 +906,7 @@ if (confirmResetNo) {
 
 if (confirmResetYes) {
   confirmResetYes.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) return;
     if (confirmOverlay) confirmOverlay.style.display = "none";
@@ -883,6 +936,7 @@ const dailyWeightInput = document.getElementById("daily-weight-input");
 const dailyWeightSave = document.getElementById("daily-weight-save");
 if (dailyWeightSave && dailyWeightInput) {
   dailyWeightSave.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) return;
     const val = dailyWeightInput.value.trim();
@@ -969,6 +1023,7 @@ async function loadWeekWorkouts() {
 const saveWorkoutBtn = document.getElementById("save-workout");
 if (saveWorkoutBtn) {
   saveWorkoutBtn.addEventListener("click", async () => {
+    if (isDemoMode()) { showError("Preview only. Modifications are disabled."); return; }
     const tid = currentTelegramId();
     if (!tid) { showError("Nu pot identifica utilizatorul."); return; }
     const nameEl = document.getElementById("workout-name");

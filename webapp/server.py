@@ -47,9 +47,100 @@ from config import get_config  # type: ignore[import-not-found]  # noqa: E402
 
 _logger = logging.getLogger(__name__)
 
+# Preview/demo mode: anyone can open the app with ?tid=0 or ?tid=demo to see all pages with sample data. Writes are blocked.
+DEMO_TELEGRAM_ID = 0
+
+# When True (env DEMO_MODE=1 or true or yes), the app runs as preview-only: no login, no stored data, all GETs use demo user.
+DEMO_MODE = os.getenv("DEMO_MODE", "").strip().lower() in ("1", "true", "yes")
+
+
+def is_demo(telegram_id: int) -> bool:
+    return telegram_id == DEMO_TELEGRAM_ID
+
+
+def _effective_telegram_id_for_read(telegram_id: int) -> int:
+    """In DEMO_MODE, all reads use demo user so anyone can view all pages without auth."""
+    return DEMO_TELEGRAM_ID if DEMO_MODE else telegram_id
+
+
+def _reject_demo_writes(telegram_id: int) -> None:
+    """Raise 403 if the request is for the demo user or if DEMO_MODE is on (preview-only, no writes)."""
+    if DEMO_MODE or is_demo(telegram_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Demo mode – modifications are disabled. This is a preview only.",
+        )
+
 
 # Telegram Application instance — set during lifespan startup in webhook mode.
 _bot_app: Any = None  # type: Any avoids IDE needing telegram SDK installed
+
+
+async def ensure_demo_user() -> None:
+    """Create demo user and seed data so preview mode (?tid=0) shows a full app experience."""
+    async for session in db.session():
+        try:
+            demo_id = await get_user_id(session, DEMO_TELEGRAM_ID)
+            if demo_id is not None:
+                return
+            user = User(
+                telegram_id=str(DEMO_TELEGRAM_ID),
+                name="Demo User",
+                age=30,
+                height_cm=175,
+                current_weight=72.0,
+                start_weight=74.0,
+                goal="Menținere",
+                activity_level="Moderat activ",
+                target_calories=2200.0,
+                gender="male",
+            )
+            session.add(user)
+            await session.flush()
+            uid = user.id
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+            for d, cal in [(today, 1850.0), (yesterday, 2100.0)]:
+                session.add(
+                    DailyCalories(user_id=uid, date=d, total_calories=cal)
+                )
+            for name, cal, d in [
+                ("Omeletă cu legume", 320.0, today),
+                ("Salată de pui", 450.0, today),
+                ("Iaurt cu fructe", 180.0, today),
+                ("Paste carbonara", 620.0, yesterday),
+                ("Smoothie", 280.0, yesterday),
+            ]:
+                session.add(
+                    Food(
+                        user_id=uid,
+                        food_name=name,
+                        calories=cal,
+                        date=d,
+                    )
+                )
+            for w, d in [(74.0, yesterday - timedelta(days=2)), (73.2, yesterday), (72.0, today)]:
+                session.add(
+                    WeightHistory(user_id=uid, weight=w, date=d)
+                )
+            session.add(
+                WaterIntake(user_id=uid, date=today, amount_ml=1500.0)
+            )
+            session.add(
+                Workout(
+                    user_id=uid,
+                    name="Alergare",
+                    calories_burned=280.0,
+                    duration_min=30,
+                    date=yesterday,
+                )
+            )
+            await session.commit()
+            _logger.info("Demo user and seed data created for preview mode")
+        except Exception as e:
+            await session.rollback()
+            _logger.warning("ensure_demo_user skipped or failed: %s", e)
+        break
 
 
 @asynccontextmanager
@@ -59,6 +150,7 @@ async def lifespan(fastapi_app: FastAPI):  # noqa: ARG001
 
     # Always initialise database schema
     await db.init_models()
+    await ensure_demo_user()
 
     config = get_config()
     if config.webhook_url:
@@ -127,6 +219,17 @@ app.mount(
 )
 
 
+# ── Demo mode flag (for frontend: allow opening without Telegram) ─────────────
+
+@app.get("/api/demo-mode")
+async def get_demo_mode() -> dict[str, Any]:
+    """Return whether the app is in demo/preview-only mode. Frontend uses this to allow access without Telegram."""
+    return {
+        "demo_mode": DEMO_MODE,
+        "demo_telegram_id": DEMO_TELEGRAM_ID,
+    }
+
+
 # ── Telegram Webhook (production) ─────────────────────────────────────────────
 
 @app.post("/bot-webhook/{token}")
@@ -189,6 +292,7 @@ async def get_dashboard(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> Any:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     try:
         user_id = await get_user_id(session, telegram_id)
         if user_id is None:
@@ -269,6 +373,11 @@ async def register(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Create a new user profile (onboarding from mini app)."""
+    if DEMO_MODE:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo mode – registration is disabled. This is a preview only.",
+        )
     try:
         body = await request.form()
     except Exception as e:
@@ -289,6 +398,7 @@ async def register(
         telegram_id = int(_get("telegram_id"))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="ID invalid. Deschide aplicația din Menu-ul botului.")
+    _reject_demo_writes(telegram_id)
     name = (_get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Numele este obligatoriu.")
@@ -368,6 +478,7 @@ async def add_water(
     amount_ml: float,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -384,6 +495,7 @@ async def meals_for_date(
     for_date: date,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -479,6 +591,7 @@ async def add_manual_meal(
     meal_type: str = Form("Neclasificat"),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -510,6 +623,7 @@ async def analyze_meal_image(
     meal_type: str = Form("Neclasificat"),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     _ = session  # not used yet, dar păstrăm semnătura pentru extensii viitoare
     image_bytes = await file.read()
     ai_service = CalorieAIService()
@@ -525,6 +639,7 @@ async def log_weight(
     weight: float = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -553,6 +668,7 @@ async def update_personal(
     height_cm: int = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -572,6 +688,7 @@ async def update_goal(
     goal: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     if goal not in {"Slăbire", "Menținere", "Creștere"}:
         raise HTTPException(status_code=400, detail="Goal invalid")
     user_id = await get_user_id(session, telegram_id)
@@ -592,6 +709,7 @@ async def update_activity(
     activity_level: str = Form(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     if activity_level not in {
         "Sedentar",
         "Ușor activ",
@@ -617,6 +735,7 @@ async def reset_profile_api(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Delete all data for this user from the database."""
+    _reject_demo_writes(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -648,6 +767,7 @@ async def get_stats(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -777,6 +897,7 @@ async def chart_weight(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> Response:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -790,6 +911,7 @@ async def chart_calories(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> Response:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -803,6 +925,7 @@ async def get_user(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -820,6 +943,7 @@ async def get_day_summary(
     for_date: date,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -899,6 +1023,7 @@ async def get_score(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -912,7 +1037,29 @@ async def get_score(
 async def get_leaderboard(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """Return all users ranked by score (desc), streak (desc) as tiebreaker."""
+    """Return all users ranked by score (desc), streak (desc) as tiebreaker. In DEMO_MODE, only demo user is returned."""
+    if DEMO_MODE:
+        demo_user_id = await get_user_id(session, DEMO_TELEGRAM_ID)
+        if demo_user_id is None:
+            return {"leaderboard": []}
+        user = await get_user_by_id(session, demo_user_id)
+        if not user:
+            return {"leaderboard": []}
+        svc = ScoreService(session)
+        data = await svc.compute(user.id)
+        return {
+            "leaderboard": [
+                {
+                    "telegram_id": user.telegram_id,
+                    "name": user.name,
+                    "score": data["score"],
+                    "streak": data["streak"],
+                    "goal": user.goal,
+                    "rank": 1,
+                }
+            ]
+        }
+
     users_result = await session.execute(select(User).order_by(User.name))
     users = users_result.scalars().all()
 
@@ -954,6 +1101,7 @@ async def add_workout(
     duration_min: int | None = Form(None),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    _reject_demo_writes(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -976,6 +1124,7 @@ async def get_week_workouts(
     telegram_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    telegram_id = _effective_telegram_id_for_read(telegram_id)
     user_id = await get_user_id(session, telegram_id)
     if user_id is None:
         raise HTTPException(status_code=404, detail="User not found")

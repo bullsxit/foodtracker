@@ -42,6 +42,7 @@ This guide gets the app running on **free services only**: **Render** (web app +
    | `TELEGRAM_BOT_TOKEN` | Your bot token from BotFather |
    | `BOT_WEBHOOK_URL`    | **Leave empty for now** (you’ll set it after first deploy) |
    | `DATABASE_URL`       | The Neon connection string from step 1 |
+   | `DEMO_MODE`          | **`1`** – lets anyone open the app without Telegram and browse all pages (preview only, no data saved). Omit or leave empty for normal mode (users must open from the bot). |
 
 6. Click **Create Web Service**. Render will build and deploy.
 7. When the deploy finishes, open the service URL (e.g. `https://foodtracker-xxxx.onrender.com`). You should see the API (e.g. a blank page or “FoodTracker WebApp API” if you open the root).
@@ -63,9 +64,10 @@ This guide gets the app running on **free services only**: **Render** (web app +
 ## 4. How users open the Mini App
 
 - **From the bot:** Open the bot in Telegram → tap **Menu** (or the “Deschide aplicația” button) → the Mini App opens (phone, tablet, or desktop).
-- **Direct link (e.g. for testing):**  
-  `https://YOUR-RENDER-URL.onrender.com/webapp/`  
-  In a normal browser you’ll need `?tid=YOUR_TELEGRAM_ID` to mimic a user; from Telegram this isn’t needed because the app reads the user from the Telegram WebApp SDK.
+- **Public demo (when `DEMO_MODE=1` on Render):**
+  Anyone can open in a browser: `https://YOUR-RENDER-URL.onrender.com/webapp/` — no Telegram or `?tid=` needed. They see all pages with sample data; forms are disabled and nothing is saved.
+- **Direct link without demo mode:**  
+  Same URL; in a browser add `?tid=YOUR_TELEGRAM_ID` to mimic a user. From Telegram the app reads the user from the WebApp SDK.
 
 ---
 
