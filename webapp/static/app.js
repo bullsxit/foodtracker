@@ -65,6 +65,14 @@ if (telegramId === DEMO_USER_ID) {
   _showDemoBanner();
 }
 
+const FETCH_TIMEOUT_MS = 25000;
+
+function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(to));
+}
+
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -193,6 +201,7 @@ function _showLoading(msg) {
 }
 
 function _renderDashboardData(data) {
+  if (!data || !data.user) return;
   const user = data.user;
   cachedUser = user;
   const onboardingCard = document.getElementById("onboarding-card");
@@ -268,17 +277,26 @@ async function loadDashboard() {
 
   // Demo first: try fictional id 0 for everyone – show dashboard, never the form (no link to person's id)
   try {
-    const r = await fetch(`${API_BASE}/dashboard/${DEMO_USER_ID}`);
+    const r = await fetchWithTimeout(`${API_BASE}/dashboard/${DEMO_USER_ID}`);
     if (r.ok) {
       const data = await r.json();
-      window.__demoMode = true;
-      telegramId = DEMO_USER_ID;
-      _showDemoBanner();
-      _renderDashboardData(data);
-      syncSettingsFromUser();
+      if (data && data.user) {
+        window.__demoMode = true;
+        telegramId = DEMO_USER_ID;
+        _showDemoBanner();
+        _renderDashboardData(data);
+        syncSettingsFromUser();
+        return;
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") {
+      _showLoading("Serverul pornește… Reîncerc în câteva secunde.");
+      setTimeout(loadDashboard, 4000);
       return;
     }
-  } catch (_) {}
+    _hideLoading();
+  }
 
   telegramId = getTelegramId();
   if (!telegramId) {
@@ -299,12 +317,12 @@ async function loadDashboard() {
   _dashboardRetryCount = 0;
 
   try {
-    const response = await fetch(`${API_BASE}/dashboard/${telegramId}`, {
+    const response = await fetchWithTimeout(`${API_BASE}/dashboard/${telegramId}`, {
       headers: { "Content-Type": "application/json" },
     });
 
     if (response.status === 404) {
-      const fallback = await fetch(`${API_BASE}/dashboard/${DEMO_USER_ID}`).catch(() => null);
+      const fallback = await fetchWithTimeout(`${API_BASE}/dashboard/${DEMO_USER_ID}`).catch(() => null);
       if (fallback && fallback.ok) {
         window.__demoMode = true;
         telegramId = DEMO_USER_ID;
